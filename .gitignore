@@ -1,3 +1,7 @@
+glove.6B.100d.word2vec
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -26,6 +30,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.pickle
+*.pkl
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
