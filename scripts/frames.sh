@@ -5,7 +5,7 @@ for f in $FILE_DIR/*.tar;
 do 
 # echo $f
 # bn=basename $f
-echo basename $f
+echo $ (basename $f)
 # mkdir $bn
 # echo "created directory ${bn}"
 # tar -xfC $bn "$f"
