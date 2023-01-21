@@ -7,8 +7,7 @@ do
 bn=$(basename $f .tar)
 echo $bn
 # echo $ (basename $f)
-mkdir $FILE_DIR/$bn
-echo "created directory ${bn}"
-tar -xfC $bn "$f"
+(cd $FILE_DIR && mkdir $bn && tar -xfC $bn "$f")
+# echo "created directory ${bn}"
 echo "extracted ${f}"
 done
