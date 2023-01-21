@@ -1,0 +1,9 @@
+#!/bin/bash
+FILE_DIR=$1
+echo "file directory: ${FILE_DIR}"
+for f in $FILE_DIR/*.tar; 
+do 
+bn=$ (basename $f .tar)
+tar -xfC $bn "$f"
+echo "extracted ${f}"
+done
