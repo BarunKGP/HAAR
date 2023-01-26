@@ -61,11 +61,13 @@ def get_feats(dataset: DataFrame, video_info: DataFrame):
             frame_str = 'frame_' + str(frame).zfill(10) + '.jpg'
             image_loc = os.path.join(image_loc_root, 'rgb_frames', video_id, frame_str)
             image = preprocess(Image.open(image_loc)).unsqueeze(0).to(device)
-            image_features = model.encode_image(image) # (1, 512) vector
+            with torch.no_grad():
+                image_features = model.encode_image(image) # (1, 512) vector
             feats_tensor[i] = image_features
             i += 1
         print(f'Extracted frames for index {index}')
         print(f'Shape of extracted frames_tensor: {feats_tensor.shape}')
+        print(torch.cuda.memory_summary(device=1, abbreviated=False))
         feats[index] = feats_tensor
 
     return feats
