@@ -7,7 +7,8 @@ import pickle
 import argparse
 import os
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda:1" if torch.cuda.is_available() else "cpu"
+# device = 'cuda[1]'
 model, preprocess = clip.load("ViT-B/32", device=device)
 
 DATA_ROOT= '../../2g1n6qdydwa9u22shpxqzp0t8m/'
