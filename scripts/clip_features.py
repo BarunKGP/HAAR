@@ -86,6 +86,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     dataset, video_info = get_dataset(args.pickle_loc, args.video_info_loc)
+    print('Initialized Dataframes')
     feats = get_feats(dataset, video_info)
     print('Finished extraction')
     with open('clip_rgb_features.pickle', 'xb') as handle:
