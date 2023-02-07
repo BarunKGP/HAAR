@@ -5,7 +5,7 @@ from typing import Any, List, Tuple
 
 import pandas
 import torch
-from clip_features import get_dataset
+from clip_features import get_feats
 from torch import DataSet
 from utils import get_sec
 
@@ -20,10 +20,7 @@ class FrameLoader(DataSet):
         self.video_info_df = self.generate(info_loc)
         self.data_df = self.generate(loc)
 
-        #
         self.create_dataset()
-
-        # __getattr__ -> returns torch.Tensor() -- concatenated multimodal features (rgb, flow, text)
 
     def generate(file_loc: str) -> List[Tuple]:
         """Generates the dataset from pickle file.
@@ -82,6 +79,20 @@ class FrameLoader(DataSet):
         return len(self.dataset)
 
     def __getitem__(self, idx: str) -> Any:
+        """_summary_
+
+        Args:
+            idx (str): _description_
+
+        Returns:
+            feat (dict): Returns a dict containing multimodal features.
+                feats: {
+                    'rgb_frames': torch.Tensor(size=(n_frames, 512)),
+                    'flow_frames: torch.Tensor(size=(n_frames, 1024)),
+                    'narration': torch.Tensor(size=(1, 512))
+                    }
+        """
+        STRIDE = config.getint('feature_extraction', 'stride')
         root, video_id, start, end, narr = self.dataset[idx]
-        feats = clip_features.get_feats(self.data_df, self.video_info_df, idx)
+        feats = get_feats(root, video_id, start, end, narr, stride=STRIDE)
         return feats
