@@ -32,7 +32,7 @@ class FrameLoader(Dataset):
                 the dataset as a list of tuple values
         """
         try:
-            with open(file_loc, 'xb') as handle:
+            with open(file_loc, 'rb') as handle:
                 df: pandas.DataFrame = pickle.load(handle)
         except:
             raise FileNotFoundError(f'Invalid pickle location: {file_loc}')
