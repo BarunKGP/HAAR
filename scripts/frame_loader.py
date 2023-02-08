@@ -1,10 +1,10 @@
 import os
 import pickle
-from configparser import ConfigParser
+# from configparser import ConfigParser
 from typing import Any, List, Tuple
 
 import pandas
-# from clip_features import get_feats
+from clip_features import get_feats
 from torch.utils.data import Dataset, DataLoader
 from constants import PICKLE_ROOT, STRIDE, DATA_ROOT
 from utils import get_sec
@@ -107,13 +107,13 @@ if __name__ == '__main__':
     loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl')
     info_loc = os.path.join(pickle_root, 'video_info.pkl')
     print(f'loc = {loc}, info_loc = {info_loc}')
-    # dataset = FrameLoader(
-    #     loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
-    #     info_loc = os.path.join(pickle_root, 'video_info.pkl')
-    #     )
-    # loader = DataLoader(dataset, shuffle=True, batch_size=8)
+    dataset = FrameLoader(
+        loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
+        info_loc = os.path.join(pickle_root, 'video_info.pkl')
+        )
+    loader = DataLoader(dataset, shuffle=True, batch_size=8)
 
-    # for video_id, feats in loader:
-    #     print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
+    for video_id, feats in loader:
+        print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
 
 
