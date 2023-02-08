@@ -73,6 +73,8 @@ class FrameLoader(Dataset):
                 config.get('data_root'), participant_id)
             self.dataset.append(
                 (participant_root_dir, video_id, start_frame, end_frame, narr_text))
+        print('Created dataset')
+        
 
     def __len__(self):
         return len(self.dataset)
