@@ -107,6 +107,6 @@ class FrameLoader(DataSet):
         loader = DataLoader(dataset, shuffle=True, batch_size=8)
 
         for video_id, feats in loader:
-            print(f'Video {video_id} \t feature shape = {feats.shape}')
+            print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
 
 
