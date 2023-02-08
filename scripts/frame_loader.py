@@ -101,7 +101,9 @@ class FrameLoader(Dataset):
 
 if __name__ == '__main__':
     pickle_root = config.get('default', 'pickle_root')
-    print(f'info_loc = {os.path.join(pickle_root, "video_info.pkl")}')
+    loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl')
+    info_loc = os.path.join(pickle_root, 'video_info.pkl')
+    print(f'loc = {loc}, info_loc = {info_loc}')
     dataset = FrameLoader(
         loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
         info_loc = os.path.join(pickle_root, 'video_info.pkl')
