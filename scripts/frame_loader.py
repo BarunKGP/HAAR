@@ -101,9 +101,10 @@ class FrameLoader(Dataset):
 
 if __name__ == '__main__':
     pickle_root = config.get('default', 'pickle_root')
-    dataset = FrameLoader(os.path.join(pickle_root, 'samples/df_train100_first10.pkl', 
-                        os.path.join(pickle_root, 'video_info.pkl'))
-            )
+    dataset = FrameLoader(
+        loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
+        info_loc = os.path.join(pickle_root, 'video_info.pkl')
+        )
     loader = DataLoader(dataset, shuffle=True, batch_size=8)
 
     for video_id, feats in loader:
