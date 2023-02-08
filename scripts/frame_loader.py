@@ -102,15 +102,15 @@ class FrameLoader(Dataset):
 if __name__ == '__main__':
     pickle_root = config.get('default', 'pickle_root')
     loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl')
-    info_loc = os.path.join(pickle_root, 'video_info.pkl')
+    info_loc = os.path.join(pickle_root, '/video_info.pkl')
     print(f'loc = {loc}, info_loc = {info_loc}')
-    dataset = FrameLoader(
-        loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
-        info_loc = os.path.join(pickle_root, 'video_info.pkl')
-        )
-    loader = DataLoader(dataset, shuffle=True, batch_size=8)
+    # dataset = FrameLoader(
+    #     loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
+    #     info_loc = os.path.join(pickle_root, 'video_info.pkl')
+    #     )
+    # loader = DataLoader(dataset, shuffle=True, batch_size=8)
 
-    for video_id, feats in loader:
-        print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
+    # for video_id, feats in loader:
+    #     print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
 
 
