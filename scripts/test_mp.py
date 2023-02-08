@@ -39,52 +39,57 @@ def worker(ctr: int, k, queue):
     logger.info(f'Exiting child process {process.name}')
 
 if __name__ == "__main__":
-    set_start_method('spawn')
-    queue = Queue()
-    d = {
-        'version': 1,
-        'formatters': {
-            'detailed': {
-                'class': 'logging.Formatter',
-                'format': '%(asctime)s %(name)-15s %(levelname)-8s %(processName)-10s %(message)s'
-            }
-        },
-        'handlers': {
-            'console': {
-                'class': 'logging.StreamHandler',
-                'level': 'INFO',
-            },
-            'file': {
-                'class': 'logging.FileHandler',
-                'filename': 'mptest.log',
-                'mode': 'w',
-                'formatter': 'detailed',
-            },
-        },
-        'loggers': {
-            'test': {
-                'handlers': ['file']
-            }
-        }
-    }
-    logging.config.dictConfig(d)
-    listener = threading.Thread(target=logger_thread, args=(queue,))
-    listener.start()
+    c = 0
+    for i in range(1000000):
+        c += 1
+    print(f'Completed! c = {c}')
 
-    logger = logging.getLogger('test')
-    logger.addHandler(QueueHandler(queue))
+    # set_start_method('spawn')
+    # queue = Queue()
+    # d = {
+    #     'version': 1,
+    #     'formatters': {
+    #         'detailed': {
+    #             'class': 'logging.Formatter',
+    #             'format': '%(asctime)s %(name)-15s %(levelname)-8s %(processName)-10s %(message)s'
+    #         }
+    #     },
+    #     'handlers': {
+    #         'console': {
+    #             'class': 'logging.StreamHandler',
+    #             'level': 'INFO',
+    #         },
+    #         'file': {
+    #             'class': 'logging.FileHandler',
+    #             'filename': 'mptest.log',
+    #             'mode': 'w',
+    #             'formatter': 'detailed',
+    #         },
+    #     },
+    #     'loggers': {
+    #         'test': {
+    #             'handlers': ['file']
+    #         }
+    #     }
+    # }
+    # logging.config.dictConfig(d)
+    # listener = threading.Thread(target=logger_thread, args=(queue,))
+    # listener.start()
 
-    logger.info('Main process started')
-    ctr1 = 10003123
-    ctr2 = 1000000
-    p1 = Process(target=worker, args=(ctr1, 2, queue))
-    p2 = Process(target=worker, args=(ctr2, 3.5, queue))
-    p1.start()
-    p2.start()
+    # logger = logging.getLogger('test')
+    # logger.addHandler(QueueHandler(queue))
 
-    p1.join()
-    p2.join()
+    # logger.info('Main process started')
+    # ctr1 = 10003123
+    # ctr2 = 1000000
+    # p1 = Process(target=worker, args=(ctr1, 2, queue))
+    # p2 = Process(target=worker, args=(ctr2, 3.5, queue))
+    # p1.start()
+    # p2.start()
 
-    logger.info('Main process completed')
-    queue.put(None)
-    listener.join()
+    # p1.join()
+    # p2.join()
+
+    # logger.info('Main process completed')
+    # queue.put(None)
+    # listener.join()

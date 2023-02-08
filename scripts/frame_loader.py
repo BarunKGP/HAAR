@@ -6,7 +6,7 @@ from typing import Any, List, Tuple
 import pandas
 import torch
 from clip_features import get_feats
-from torch import DataSet
+from torch import DataSet, DataLoader
 from utils import get_sec
 
 config = ConfigParser()
@@ -14,7 +14,7 @@ config.read('config.ini')
 
 
 class FrameLoader(DataSet):
-    def __init__(self, loc, info_loc, train: bool) -> None:
+    def __init__(self, loc, info_loc, train: bool = True) -> None:
         super().__init__()
         self.dataset = []
         self.video_info_df = self.generate(info_loc)
@@ -85,8 +85,9 @@ class FrameLoader(DataSet):
             idx (str): _description_
 
         Returns:
+            video_id (str): Returns video id of corresponding video.
             feat (dict): Returns a dict containing multimodal features.
-                feats: {
+                 feats: {
                     'rgb_frames': torch.Tensor(size=(n_frames, 512)),
                     'flow_frames: torch.Tensor(size=(n_frames, 1024)),
                     'narration': torch.Tensor(size=(1, 512))
@@ -95,4 +96,17 @@ class FrameLoader(DataSet):
         STRIDE = config.getint('feature_extraction', 'stride')
         root, video_id, start, end, narr = self.dataset[idx]
         feats = get_feats(root, video_id, start, end, narr, stride=STRIDE)
-        return feats
+        return video_id, feats
+    
+    if __name__ == '__main__':
+        pickle_root = config.get('pickle_root')
+        dataset = FrameLoader(
+            loc=os.path.join(pickle_root, 'samples/df_train100_first10.pkl',
+            info_loc = os.path.join(pickle_root, 'video_info.pkl'))
+            )
+        loader = DataLoader(dataset, shuffle=True, batch_size=8)
+
+        for video_id, feats in loader:
+            print(f'Video {video_id} \t feature shape = {feats.shape}')
+
+
