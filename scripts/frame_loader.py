@@ -34,7 +34,7 @@ class FrameLoader(Dataset):
             with open(file_loc, 'xb') as handle:
                 df: pandas.DataFrame = pickle.load(handle)
         except:
-            raise FileNotFoundError
+            raise FileNotFoundError(f'Invalid pickle location: {file_loc}')
 
         return df
 
@@ -101,6 +101,7 @@ class FrameLoader(Dataset):
 
 if __name__ == '__main__':
     pickle_root = config.get('default', 'pickle_root')
+    print(f'info_loc = {os.path.join(pickle_root, "video_info.pkl")}')
     dataset = FrameLoader(
         loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
         info_loc = os.path.join(pickle_root, 'video_info.pkl')
