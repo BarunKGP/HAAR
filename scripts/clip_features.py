@@ -96,8 +96,8 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
 
     else:
         raise Exception("Invalid modality")
-    if not feats:
-        print(f'feats = {feats}')
+    if feats is None:
+        print(f'feats = None')
     else:
         print(f'Size of feats = {feats.shape}')
     return feats
