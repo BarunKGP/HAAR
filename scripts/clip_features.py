@@ -31,7 +31,7 @@ def get_feats(root: str, video_id: str, start_frame: int, end_frame: int, narr: 
 
     feats = {}
     rgb_tensor = torch.empty(size=((end_frame - start_frame)//stride, 512))
-    flow_tensor = torch.empty(size=(2*(end_frame - start_frame)//stride, 1024))
+    flow_tensor = torch.empty(size=((end_frame - start_frame)//stride, 1024))
     i = 0
     for frame in range(start_frame, end_frame, stride):
         # only rgb frames for now
@@ -71,18 +71,18 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
         _type_: _description_
     """
     assert type(data) == list, "data should be a list"
-
+    feats = None
     if modality == "narration":
         assert len(data) == 1, "Entire narration text should be passed in a list"
         text = clip.tokenize(data).to(device)
-        return model.encode_text(text)
+        feats = model.encode_text(text)
 
     elif modality == "rgb_frames":
         assert len(data) == 1, "Pass only one frame for rgb"
         rgb_image = preprocess(Image.open(data[0])).unsqueeze(0).to(device)
         with torch.no_grad():
             rgb_features = model.encode_image(rgb_image)
-        return rgb_features
+        feats = rgb_features
 
     elif modality == "flow_frames":
         assert len(data) == 2, "Pass only 2 frame locations for flow_frames"
@@ -92,10 +92,15 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
                 data[0])).unsqueeze(0).to(device)
             with torch.no_grad():
                 flow_features.append(model.encode_image(flow_image))
-        return torch.hstack(flow_features)
+        feats = torch.hstack(flow_features)
 
     else:
         raise Exception("Invalid modality")
+    if not feats:
+        print(f'feats = {feats}')
+    else:
+        print(f'Size of feats = {feats.shape}')
+    return feats
 
 
 # def parse_args():
