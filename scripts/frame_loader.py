@@ -21,7 +21,7 @@ class FrameLoader(Dataset):
 
         self.create_dataset()
 
-    def generate(file_loc: str) -> List[Tuple]:
+    def generate(self, file_loc: str) -> List[Tuple]:
         """Generates the dataset from pickle file.
 
         Arguments:
