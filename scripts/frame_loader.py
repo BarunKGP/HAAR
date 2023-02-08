@@ -70,7 +70,7 @@ class FrameLoader(Dataset):
                     get_sec(self.data_df.at[index + 1, 'narration_timestamp']) * FRAME_RATE)
 
             participant_root_dir = os.path.join(
-                config.get('data_root'), participant_id)
+                config.get('default', 'data_root'), participant_id)
             self.dataset.append(
                 (participant_root_dir, video_id, start_frame, end_frame, narr_text))
         print('Created dataset')
@@ -100,7 +100,7 @@ class FrameLoader(Dataset):
         return video_id, feats
     
     if __name__ == '__main__':
-        pickle_root = config.get('pickle_root')
+        pickle_root = config.get('default', 'pickle_root')
         dataset = FrameLoader(
             loc=os.path.join(pickle_root, 'samples/df_train100_first10.pkl',
             info_loc = os.path.join(pickle_root, 'video_info.pkl'))
