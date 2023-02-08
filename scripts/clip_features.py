@@ -3,11 +3,11 @@ import os
 import clip
 import torch
 from PIL import Image
+from constants import DATA_ROOT
 
 device = "cuda:1" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load("RN50", device=device)
 
-DATA_ROOT = '../../2g1n6qdydwa9u22shpxqzp0t8m/'
 
 
 def get_feats(root: str, video_id: str, start_frame: int, end_frame: int, narr: str, stride: int = 1) -> torch.Tensor:

@@ -4,12 +4,13 @@ from configparser import ConfigParser
 from typing import Any, List, Tuple
 
 import pandas
-from clip_features import get_feats
+# from clip_features import get_feats
 from torch.utils.data import Dataset, DataLoader
+from constants import PICKLE_ROOT, STRIDE, DATA_ROOT
 from utils import get_sec
 
-config = ConfigParser()
-config.read('config.ini')
+# config = ConfigParser()
+# config.read(r'config.ini')
 
 
 class FrameLoader(Dataset):
@@ -70,7 +71,8 @@ class FrameLoader(Dataset):
                     get_sec(self.data_df.at[index + 1, 'narration_timestamp']) * FRAME_RATE)
 
             participant_root_dir = os.path.join(
-                config.get('default', 'data_root'), participant_id)
+                # config.get('default', 'data_root'), participant_id)
+                DATA_ROOT, participant_id)
             self.dataset.append(
                 (participant_root_dir, video_id, start_frame, end_frame, narr_text))
         print('Created dataset')
@@ -94,15 +96,16 @@ class FrameLoader(Dataset):
                     'narration': torch.Tensor(size=(1, 512))
                     }
         """
-        STRIDE = config.getint('feature_extraction', 'stride')
+        # STRIDE = config.getint('feature_extraction', 'stride')
         root, video_id, start, end, narr = self.dataset[idx]
         feats = get_feats(root, video_id, start, end, narr, stride=STRIDE)
         return video_id, feats
 
 if __name__ == '__main__':
-    pickle_root = os.path(config.get('default', 'pickle_root'))
+    # pickle_root = os.path(config.get("feature_extraction", 'stride'))
+    pickle_root = PICKLE_ROOT
     loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl')
-    info_loc = os.path.join(pickle_root, '/video_info.pkl')
+    info_loc = os.path.join(pickle_root, 'video_info.pkl')
     print(f'loc = {loc}, info_loc = {info_loc}')
     # dataset = FrameLoader(
     #     loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
