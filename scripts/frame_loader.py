@@ -4,16 +4,15 @@ from configparser import ConfigParser
 from typing import Any, List, Tuple
 
 import pandas
-import torch
 from clip_features import get_feats
-from torch import DataSet, DataLoader
+from torch.utils.data import Dataset, DataLoader
 from utils import get_sec
 
 config = ConfigParser()
 config.read('config.ini')
 
 
-class FrameLoader(DataSet):
+class FrameLoader(Dataset):
     def __init__(self, loc, info_loc, train: bool = True) -> None:
         super().__init__()
         self.dataset = []
