@@ -106,7 +106,6 @@ if __name__ == '__main__':
     pickle_root = PICKLE_ROOT
     loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl')
     info_loc = os.path.join(pickle_root, 'video_info.pkl')
-    print(f'loc = {loc}, info_loc = {info_loc}')
     dataset = FrameLoader(
         loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
         info_loc = os.path.join(pickle_root, 'video_info.pkl')
