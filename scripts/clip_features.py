@@ -34,7 +34,7 @@ def get_features(root: str, video_id: str, start_frame: int, end_frame: int, nar
     rgb_tensor = torch.empty(size=((math.ceil(end_frame - start_frame))//stride, 1024))
     flow_tensor = torch.empty(size=((math.ceil(end_frame - start_frame))//stride, 2048))
     i = 0
-    print(f'start = {start_frame}, end = {end_frame}')
+    print(f'\n\n\n video: {video_id}, start = {start_frame}, end = {end_frame}')
     print(f'rgb_tensor: {rgb_tensor.shape}')
     for frame in range(start_frame, end_frame, stride):
         # only rgb frames for now
