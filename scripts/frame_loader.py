@@ -117,7 +117,7 @@ if __name__ == '__main__':
     
 
 
-    for video_id, feats in loader:
-        print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
+    # for video_id, feats in loader:
+    #     print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
 
 

@@ -103,7 +103,7 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
         raise Exception("Invalid modality")
     
     # print(f'{modality} feats: {feats.shape}')
-    return feats
+    return feats.squeeze()
 
 
 # def parse_args():
