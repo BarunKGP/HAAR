@@ -57,7 +57,7 @@ class FrameLoader(Dataset):
         if self.video_info_df.empty or self.data_df.empty:
             raise Exception("Empty DataFrame")
 
-        for index, row in self.data_df.iterrows():
+        for index, row in range(3): # self.data_df.iterrows():
             video_id, participant_id, narr_timestamp, narr_text = (
                 row['video_id'], row['participant_id'], row['narration_timestamp'], row['narration'])
             FRAME_RATE = float(
@@ -110,7 +110,7 @@ if __name__ == '__main__':
         loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
         info_loc = os.path.join(pickle_root, 'video_info.pkl')
         )
-    loader = DataLoader(dataset, shuffle=True, batch_size=8)
+    loader = DataLoader(dataset, batch_size=8)
     
     vid_id, feats = dataset[0]
     print(f"Video {vid_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
