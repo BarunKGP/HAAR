@@ -1,3 +1,4 @@
+import math
 import os
 
 import clip
@@ -30,8 +31,8 @@ def get_features(root: str, video_id: str, start_frame: int, end_frame: int, nar
         raise Exception("Stride should be at least 1")
 
     feats = {}
-    rgb_tensor = torch.empty(size=((end_frame - start_frame)//stride, 1024))
-    flow_tensor = torch.empty(size=((end_frame - start_frame)//stride, 2048))
+    rgb_tensor = torch.empty(size=((math.ceil(end_frame - start_frame))//stride, 1024))
+    flow_tensor = torch.empty(size=((math.ceil(end_frame - start_frame))//stride, 2048))
     i = 0
     print(f'start = {start_frame}, end = {end_frame}')
     print(f'rgb_tensor: {rgb_tensor.shape}')
