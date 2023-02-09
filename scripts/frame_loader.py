@@ -111,6 +111,11 @@ if __name__ == '__main__':
         info_loc = os.path.join(pickle_root, 'video_info.pkl')
         )
     loader = DataLoader(dataset, shuffle=True, batch_size=8)
+    
+    vid_id, feats = dataset[0]
+    print(f"Video {vid_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
+    
+
 
     for video_id, feats in loader:
         print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
