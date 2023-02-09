@@ -100,24 +100,3 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
     
     # print(f'{modality} feats: {feats.shape}')
     return feats.squeeze()
-
-
-# def parse_args():
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--pickle_loc', type=str, required=True)
-#     parser.add_argument('--video_info_loc', type=str, required=True)
-#     args = parser.parse_args()
-
-#     return args
-
-
-# if __name__ == '__main__':
-#     args = parse_args()
-#     dataset, video_info = get_dataset(args.pickle_loc, args.video_info_loc)
-#     print('Initialized Dataframes')
-#     feats = get_feats(dataset, video_info)
-#     print('Finished extraction')
-#     with open('clip_rgb_features.pickle', 'xb') as handle:
-#         pickle.dump(feats, handle)
-#     print('Wrote image features to pickle')
-#     print('Exiting...')
