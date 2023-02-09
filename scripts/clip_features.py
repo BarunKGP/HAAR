@@ -37,9 +37,7 @@ def get_features(root: str, video_id: str, start_frame: int, end_frame: int, nar
     flow_tensor = torch.empty(size=(math.ceil((end_frame - start_frame)/stride), 2048))
     i = 0
     print(f'\n\n\n video: {video_id}, start = {start_frame}, end = {end_frame}')
-    print(f'rgb_tensor: {rgb_tensor.shape}')
     for frame in tqdm(range(start_frame, end_frame, stride), desc='Frame extraction progress: '):
-        # only rgb frames for now
         frame_str = 'frame_' + str(frame).zfill(10) + '.jpg'
         # print(f'frame_id = {frame_str}')
         rgb_loc = os.path.join(
@@ -50,8 +48,6 @@ def get_features(root: str, video_id: str, start_frame: int, end_frame: int, nar
         flow_tensor[i] = get_clip_features(flow_locs, modality="flow_frames")
         i += 1
 
-    # print(f'Extracted frames for index {index}')
-    # print(f'Shape of extracted frames_tensor: {feats_tensor.shape}')
     # print(torch.cuda.memory_summary(device=1, abbreviated=False))
     feats['rgb_frames'] = rgb_tensor
     feats['flow_frames'] = flow_tensor
