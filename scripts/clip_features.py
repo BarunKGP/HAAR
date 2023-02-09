@@ -33,9 +33,12 @@ def get_features(root: str, video_id: str, start_frame: int, end_frame: int, nar
     rgb_tensor = torch.empty(size=((end_frame - start_frame)//stride, 1024))
     flow_tensor = torch.empty(size=((end_frame - start_frame)//stride, 2048))
     i = 0
+    print(f'start = {start_frame}, end = {end_frame}')
+    print(f'rgb_tensor: {rgb_tensor.shape}')
     for frame in range(start_frame, end_frame, stride):
         # only rgb frames for now
         frame_str = 'frame_' + str(frame).zfill(10) + '.jpg'
+        print(f'frame_id = {frame_str}')
         rgb_loc = os.path.join(
             root, 'rgb_frames', video_id, frame_str)
         flow_locs = [os.path.join(root, 'flow_frames', video_id, 'u', frame_str),
@@ -96,7 +99,7 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
     else:
         raise Exception("Invalid modality")
     
-    print(f'{modality} feats: {feats.shape}')
+    # print(f'{modality} feats: {feats.shape}')
     return feats
 
 
