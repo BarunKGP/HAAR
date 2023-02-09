@@ -41,7 +41,7 @@ def get_features(root: str, video_id: str, start_frame: int, end_frame: int, nar
     for frame in tqdm(range(start_frame, end_frame, stride), desc='Frame extraction progress: '):
         # only rgb frames for now
         frame_str = 'frame_' + str(frame).zfill(10) + '.jpg'
-        print(f'frame_id = {frame_str}')
+        # print(f'frame_id = {frame_str}')
         rgb_loc = os.path.join(
             root, 'rgb_frames', video_id, frame_str)
         flow_locs = [os.path.join(root, 'flow_frames', video_id, 'u', frame_str),

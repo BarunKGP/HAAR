@@ -57,7 +57,7 @@ class FrameLoader(Dataset):
         if self.video_info_df.empty or self.data_df.empty:
             raise Exception("Empty DataFrame")
 
-        for index, row in self.data_df.head(1).iterrows(): # self.data_df.iterrows():
+        for index, row in self.data_df.head(3).iterrows(): # self.data_df.iterrows():
             video_id, participant_id, narr_timestamp, narr_text = (
                 row['video_id'], row['participant_id'], row['narration_timestamp'], row['narration'])
             FRAME_RATE = float(
@@ -113,11 +113,11 @@ if __name__ == '__main__':
     loader = DataLoader(dataset, batch_size=8)
     
     vid_id, feats = dataset[0]
-    print(f"Video {vid_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
+    # print(f"Video {vid_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
     
 
 
-    # for video_id, feats in loader:
-    #     print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
+    for video_id, feats in loader:
+        print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
 
 
