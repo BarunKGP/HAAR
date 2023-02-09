@@ -30,8 +30,8 @@ def get_feats(root: str, video_id: str, start_frame: int, end_frame: int, narr: 
         raise Exception("Stride should be at least 1")
 
     feats = {}
-    rgb_tensor = torch.empty(size=((end_frame - start_frame)//stride, 512))
-    flow_tensor = torch.empty(size=((end_frame - start_frame)//stride, 1024))
+    rgb_tensor = torch.empty(size=((end_frame - start_frame)//stride, 1024))
+    flow_tensor = torch.empty(size=((end_frame - start_frame)//stride, 2048))
     i = 0
     for frame in range(start_frame, end_frame, stride):
         # only rgb frames for now
@@ -82,7 +82,6 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
         rgb_image = preprocess(Image.open(data[0])).unsqueeze(0).to(device)
         with torch.no_grad():
             rgb_features = model.encode_image(rgb_image)
-        print(f'rgb_feats shape = {rgb_features.shape}')
         feats = rgb_features
 
     elif modality == "flow_frames":
