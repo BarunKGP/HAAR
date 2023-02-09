@@ -10,7 +10,7 @@ model, preprocess = clip.load("RN50", device=device)
 
 
 
-def get_feats(root: str, video_id: str, start_frame: int, end_frame: int, narr: str, stride: int = 1) -> torch.Tensor:
+def get_features(root: str, video_id: str, start_frame: int, end_frame: int, narr: str, stride: int = 1) -> torch.Tensor:
     """_summary_
 
     Args:

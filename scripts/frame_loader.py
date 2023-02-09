@@ -4,7 +4,7 @@ import pickle
 from typing import Any, List, Tuple
 
 import pandas
-from clip_features import get_feats
+from clip_features import get_features
 from torch.utils.data import Dataset, DataLoader
 from constants import PICKLE_ROOT, STRIDE, DATA_ROOT
 from utils import get_sec
@@ -98,7 +98,7 @@ class FrameLoader(Dataset):
         """
         # STRIDE = config.getint('feature_extraction', 'stride')
         root, video_id, start, end, narr = self.dataset[idx]
-        feats = get_feats(root, video_id, start, end, narr, stride=STRIDE)
+        feats = get_features(root, video_id, start, end, narr, stride=STRIDE)
         return video_id, feats
 
 if __name__ == '__main__':
