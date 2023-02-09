@@ -1,6 +1,8 @@
 import math
 import os
 
+from tqdm import tqdm
+
 import clip
 import torch
 from PIL import Image
@@ -36,7 +38,7 @@ def get_features(root: str, video_id: str, start_frame: int, end_frame: int, nar
     i = 0
     print(f'\n\n\n video: {video_id}, start = {start_frame}, end = {end_frame}')
     print(f'rgb_tensor: {rgb_tensor.shape}')
-    for frame in range(start_frame, end_frame, stride):
+    for frame in tqdm(range(start_frame, end_frame, stride), desc='Frame extraction progress: '):
         # only rgb frames for now
         frame_str = 'frame_' + str(frame).zfill(10) + '.jpg'
         print(f'frame_id = {frame_str}')
