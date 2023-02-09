@@ -82,6 +82,7 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
         rgb_image = preprocess(Image.open(data[0])).unsqueeze(0).to(device)
         with torch.no_grad():
             rgb_features = model.encode_image(rgb_image)
+        print(f'rgb_feats shape = {rgb_features.shape}')
         feats = rgb_features
 
     elif modality == "flow_frames":
