@@ -107,8 +107,10 @@ def main():
         )
     loader = DataLoader(dataset, batch_size=64, shuffle=True)
     
-    # vid_id, frame_id, feats = dataset[0]
-    # print(f"Video {vid_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
+    # Testing
+    print(f'Lenght of dataset = {len(dataset)}')
+    vid_id, frame_id, feats = dataset[0]
+    print(f"Video {vid_id} \t frame_id = {frame_id} \t feats = {feats.shape}")
 
     for video_id, frame_id, feats in loader:
         print(f'video_id = {video_id[0]}, frame_id = {frame_id[0]}, feats shape = {feats.shape}')

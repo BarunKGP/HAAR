@@ -17,17 +17,13 @@ def get_features(root: str, video_id: str, frame_id: str, narr: str) -> torch.Te
     """_summary_
 
     Args:
-        root (str): _description_
-        video_id (str): _description_
-        start_frame (int): _description_
-        end_frame (int): _description_
-        stride (int, optional): _description_. Defaults to 1.
-
-    Raises:
-        Exception: _description_
+        root (str): root directory
+        video_id (str): video id of corresponding video
+        frame_id (str): frame id of the clip
+        narr (str): narration text for the frame
 
     Returns:
-        torch.Tensor: _description_
+        feats (torch.Tensor): fused multimodal features for the frame
     """
     # rgb_tensor = torch.empty(size=(math.ceil((end_frame - start_frame)/stride), 1024))
     # flow_tensor = torch.empty(size=(math.ceil((end_frame - start_frame)/stride), 2048))
@@ -42,6 +38,8 @@ def get_features(root: str, video_id: str, frame_id: str, narr: str) -> torch.Te
     rgb_tensor = get_clip_features([rgb_loc])
     flow_tensor = get_clip_features(flow_locs, modality="flow_frames")
     narr_tensor = get_clip_features([narr], modality='narration')
+
+    print(f'Shapes: rgb = {rgb_tensor.shape}, flow = {flow_tensor.shape}, narr = {narr_tensor.shape}')
     
     feats = torch.hstack((rgb_tensor, flow_tensor, narr_tensor))
 
