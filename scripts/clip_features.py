@@ -13,7 +13,7 @@ model, preprocess = clip.load("RN50", device=device)
 
 
 
-def get_features(root: str, video_id: str, start_frame: int, end_frame: int, narr: str, stride: int = 1) -> torch.Tensor:
+def get_features(root: str, video_id: str, frame_id: str, narr: str) -> torch.Tensor:
     """_summary_
 
     Args:
@@ -29,30 +29,24 @@ def get_features(root: str, video_id: str, start_frame: int, end_frame: int, nar
     Returns:
         torch.Tensor: _description_
     """
-    if stride < 1:
-        raise Exception("Stride should be at least 1")
-
-    feats = {}
-    rgb_tensor = torch.empty(size=(math.ceil((end_frame - start_frame)/stride), 1024))
-    flow_tensor = torch.empty(size=(math.ceil((end_frame - start_frame)/stride), 2048))
-    i = 0
-    print(f'\n\n\n video: {video_id}, start = {start_frame}, end = {end_frame}')
-    for frame in tqdm(range(start_frame, end_frame, stride), desc='Frame extraction progress: '):
-        frame_str = 'frame_' + str(frame).zfill(10) + '.jpg'
-        # print(f'frame_id = {frame_str}')
-        rgb_loc = os.path.join(
-            root, 'rgb_frames', video_id, frame_str)
-        flow_locs = [os.path.join(root, 'flow_frames', video_id, 'u', frame_str),
-                     os.path.join(root, 'flow_frames', video_id, 'v', frame_str)]
-        rgb_tensor[i] = get_clip_features([rgb_loc])
-        flow_tensor[i] = get_clip_features(flow_locs, modality="flow_frames")
-        i += 1
+    # rgb_tensor = torch.empty(size=(math.ceil((end_frame - start_frame)/stride), 1024))
+    # flow_tensor = torch.empty(size=(math.ceil((end_frame - start_frame)/stride), 2048))
+    # i = 0
+    # for frame in tqdm(range(start_frame, end_frame, stride), desc='Frame extraction progress: '):
+    # frame_str = 'frame_' + str(frame).zfill(10) + '.jpg'
+    rgb_loc = os.path.join(
+        root, 'rgb_frames', video_id, frame_id)
+    flow_locs = [os.path.join(root, 'flow_frames', video_id, 'u', frame_id),
+                    os.path.join(root, 'flow_frames', video_id, 'v', frame_id)]
+    
+    rgb_tensor = get_clip_features([rgb_loc])
+    flow_tensor = get_clip_features(flow_locs, modality="flow_frames")
+    narr_tensor = get_clip_features([narr], modality='narration')
+    
+    feats = torch.hstack((rgb_tensor, flow_tensor, narr_tensor))
 
     # print(torch.cuda.memory_summary(device=1, abbreviated=False))
-    feats['rgb_frames'] = rgb_tensor
-    feats['flow_frames'] = flow_tensor
-    feats['narration'] = get_clip_features([narr], modality="narration")
-    print(f'extracted frame features for {video_id} from frames {start_frame}-{end_frame}')
+    print(f'extracted frame features for {video_id} {frame_id}')
     return feats
 
 

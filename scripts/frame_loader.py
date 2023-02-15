@@ -67,14 +67,16 @@ class FrameLoader(Dataset):
                 end_frame = int(self.video_info_df.loc[self.video_info_df['video_id'] == video_id]
                                 ['duration'].iat[0] * FRAME_RATE) + 1  # Check this logic
             else:
-                end_frame = int(
-                    get_sec(self.data_df.at[index + 1, 'narration_timestamp']) * FRAME_RATE)
+                end_frame = int(get_sec(self.data_df.at[index + 1, 'narration_timestamp']) * FRAME_RATE)
 
             participant_root_dir = os.path.join(
                 # config.get('default', 'data_root'), participant_id)
                 DATA_ROOT, participant_id)
-            self.dataset.append(
-                (participant_root_dir, video_id, start_frame, end_frame, narr_text))
+            
+            for frame in range(start_frame, end_frame, STRIDE):
+                frame_id = 'frame_' + str(frame).zfill(10) + '.jpg'
+                self.dataset.append((participant_root_dir, video_id, frame_id, narr_text))
+
         print('Created dataset')
         
 
@@ -88,7 +90,8 @@ class FrameLoader(Dataset):
             idx (str): _description_
 
         Returns:
-            video_id (str): Returns video id of corresponding video.
+            video_id (str): video id of corresponding video.
+            frame_id (str): frame id of the clip
             feat (dict): Returns a dict containing multimodal features.
                  feats: {
                     'rgb_frames': torch.Tensor(size=(n_frames, 512)),
@@ -97,27 +100,23 @@ class FrameLoader(Dataset):
                     }
         """
         # STRIDE = config.getint('feature_extraction', 'stride')
-        root, video_id, start, end, narr = self.dataset[idx]
-        feats = get_features(root, video_id, start, end, narr, stride=STRIDE)
-        return video_id, feats
-
-if __name__ == '__main__':
-    # pickle_root = os.path(config.get("feature_extraction", 'stride'))
+        root, video_id, frame_id, narr = self.dataset[idx]
+        feats = get_features(root, video_id, frame_id, narr)
+        return (video_id, frame_id, feats)
+    
+def main():
     pickle_root = PICKLE_ROOT
-    loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl')
-    info_loc = os.path.join(pickle_root, 'video_info.pkl')
     dataset = FrameLoader(
         loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
         info_loc = os.path.join(pickle_root, 'video_info.pkl')
         )
-    loader = DataLoader(dataset, batch_size=8)
+    loader = DataLoader(dataset, batch_size=64, shuffle=True)
     
-    vid_id, feats = dataset[0]
+    # vid_id, frame_id, feats = dataset[0]
     # print(f"Video {vid_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
-    
 
+    for video_id, frame_id, feats in loader:
+        print(f'video_id = {video_id[0]}, frame_id = {frame_id[0]}, feats shape = {feats.shape}')
 
-    for video_id, feats in loader:
-        print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
-
-
+if __name__ == '__main__':
+   main()
