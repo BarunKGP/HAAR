@@ -46,7 +46,7 @@ def get_features(root: str, video_id: str, frame_id: str, narr: str) -> torch.Te
     feats = torch.hstack((rgb_tensor, flow_tensor, narr_tensor))
 
     # print(torch.cuda.memory_summary(device=1, abbreviated=False))
-    print(f'extracted frame features for {video_id} {frame_id}')
+    # print(f'extracted frame features for {video_id} {frame_id}')
     return feats
 
 

@@ -46,8 +46,7 @@ class FrameLoader(Dataset):
         self.dataset: [(
                 participant_root_dir, 
                 video_id, 
-                start_frame,
-                end_frame, 
+                frame_id, 
                 narration_text
             )]
 
@@ -84,20 +83,16 @@ class FrameLoader(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, idx: str) -> Any:
-        """_summary_
+        """Default Dataset function
 
         Args:
-            idx (str): _description_
+            idx (str): index
 
         Returns:
-            video_id (str): video id of corresponding video.
+            video_id (str): video id of corresponding video
             frame_id (str): frame id of the clip
-            feat (dict): Returns a dict containing multimodal features.
-                 feats: {
-                    'rgb_frames': torch.Tensor(size=(n_frames, 512)),
-                    'flow_frames: torch.Tensor(size=(n_frames, 1024)),
-                    'narration': torch.Tensor(size=(1, 512))
-                    }
+            feat (torch.Tensor): fused multimodal features of
+                size (2048,)
         """
         # STRIDE = config.getint('feature_extraction', 'stride')
         root, video_id, frame_id, narr = self.dataset[idx]
