@@ -5,8 +5,8 @@ from typing import Any, List, Tuple
 
 import pandas
 from clip_features import get_features
-from torch.utils.data import Dataset, DataLoader
-from constants import PICKLE_ROOT, STRIDE, DATA_ROOT
+from constants import DATA_ROOT, STRIDE
+from torch.utils.data import Dataset
 from utils import get_sec
 
 # config = ConfigParser()
@@ -56,21 +56,19 @@ class FrameLoader(Dataset):
         if self.video_info_df.empty or self.data_df.empty:
             raise Exception("Empty DataFrame")
 
-        for index, row in self.data_df.head(3).iterrows(): # self.data_df.iterrows():
+        for index, row in self.data_df.iterrows():
             video_id, participant_id, narr_timestamp, narr_text = (
                 row['video_id'], row['participant_id'], row['narration_timestamp'], row['narration'])
-            FRAME_RATE = float(
+            frame_rate = float(
                 self.video_info_df.loc[self.video_info_df['video_id'] == video_id]['fps'].iat[0])
-            start_frame = int(get_sec(narr_timestamp) * FRAME_RATE)
+            start_frame = int(get_sec(narr_timestamp) * frame_rate)
             if index == len(self.data_df) - 1:
                 end_frame = int(self.video_info_df.loc[self.video_info_df['video_id'] == video_id]
-                                ['duration'].iat[0] * FRAME_RATE) + 1  # Check this logic
+                                ['duration'].iat[0] * frame_rate) + 1
             else:
-                end_frame = int(get_sec(self.data_df.at[index + 1, 'narration_timestamp']) * FRAME_RATE)
+                end_frame = int(get_sec(self.data_df.at[index + 1, 'narration_timestamp']) * frame_rate)
 
-            participant_root_dir = os.path.join(
-                # config.get('default', 'data_root'), participant_id)
-                DATA_ROOT, participant_id)
+            participant_root_dir = os.path.join(DATA_ROOT, participant_id)
             
             for frame in range(start_frame, end_frame, STRIDE):
                 frame_id = 'frame_' + str(frame).zfill(10) + '.jpg'
@@ -92,28 +90,8 @@ class FrameLoader(Dataset):
             video_id (str): video id of corresponding video
             frame_id (str): frame id of the clip
             feat (torch.Tensor): fused multimodal features of
-                size (2048,)
+                size (4096,)
         """
-        # STRIDE = config.getint('feature_extraction', 'stride')
         root, video_id, frame_id, narr = self.dataset[idx]
         feats = get_features(root, video_id, frame_id, narr)
         return (video_id, frame_id, feats)
-    
-def main():
-    pickle_root = PICKLE_ROOT
-    dataset = FrameLoader(
-        loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
-        info_loc = os.path.join(pickle_root, 'video_info.pkl')
-        )
-    loader = DataLoader(dataset, batch_size=64, shuffle=True)
-    
-    # Testing
-    print(f'Lenght of dataset = {len(dataset)}')
-    vid_id, frame_id, feats = dataset[0]
-    print(f"Video {vid_id} \t frame_id = {frame_id} \t feats = {feats.shape}")
-
-    for video_id, frame_id, feats in loader:
-        print(f'video_id = {video_id[0]}, frame_id = {frame_id[0]}, feats shape = {feats.shape}')
-
-if __name__ == '__main__':
-   main()

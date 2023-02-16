@@ -1,17 +1,8 @@
-import math
 import os
-
-from tqdm import tqdm
 
 import clip
 import torch
 from PIL import Image
-from constants import DATA_ROOT
-
-device = "cuda:1" if torch.cuda.is_available() else "cpu"
-model, preprocess = clip.load("RN50", device=device)
-
-
 
 def get_features(root: str, video_id: str, frame_id: str, narr: str) -> torch.Tensor:
     """_summary_
@@ -25,11 +16,6 @@ def get_features(root: str, video_id: str, frame_id: str, narr: str) -> torch.Te
     Returns:
         feats (torch.Tensor): fused multimodal features for the frame
     """
-    # rgb_tensor = torch.empty(size=(math.ceil((end_frame - start_frame)/stride), 1024))
-    # flow_tensor = torch.empty(size=(math.ceil((end_frame - start_frame)/stride), 2048))
-    # i = 0
-    # for frame in tqdm(range(start_frame, end_frame, stride), desc='Frame extraction progress: '):
-    # frame_str = 'frame_' + str(frame).zfill(10) + '.jpg'
     rgb_loc = os.path.join(
         root, 'rgb_frames', video_id, frame_id)
     flow_locs = [os.path.join(root, 'flow_frames', video_id, 'u', frame_id),
@@ -39,12 +25,9 @@ def get_features(root: str, video_id: str, frame_id: str, narr: str) -> torch.Te
     flow_tensor = get_clip_features(flow_locs, modality="flow_frames")
     narr_tensor = get_clip_features([narr], modality='narration')
 
-    print(f'Shapes: rgb = {rgb_tensor.shape}, flow = {flow_tensor.shape}, narr = {narr_tensor.shape}')
+    # print(f'Shapes: rgb = {rgb_tensor.shape}, flow = {flow_tensor.shape}, narr = {narr_tensor.shape}')
     
     feats = torch.hstack((rgb_tensor, flow_tensor, narr_tensor))
-
-    # print(torch.cuda.memory_summary(device=1, abbreviated=False))
-    # print(f'extracted frame features for {video_id} {frame_id}')
     return feats
 
 
@@ -64,6 +47,9 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
     Returns:
         _type_: _description_
     """
+    device = "cuda:1" if torch.cuda.is_available() else "cpu"
+    model, preprocess = clip.load("RN50", device=device) # TODO: parameterize these
+
     assert type(data) == list, "data should be a list"
     feats = None
     if modality == "narration":
@@ -87,8 +73,8 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
             with torch.no_grad():
                 flow_features.append(model.encode_image(flow_image))
         feats = torch.hstack(flow_features)
+    
     else:
         raise Exception("Invalid modality")
     
-    # print(f'{modality} feats: {feats.shape}')
     return feats.squeeze()
