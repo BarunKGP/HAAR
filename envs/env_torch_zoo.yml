@@ -1,0 +1,21 @@
+name: torch-zoo
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python==3.8.5
+  - numpy
+  - pytorch==1.7.1
+  - torchvision
+  - opencv
+  - pillow
+  - pip==20.2.2=py38_0
+  - matplotlib
+  - pandas
+  - ipykernel
+  - pip:
+    - ftfy
+    - regex
+    - tqdm
+    - sentence-transformers
