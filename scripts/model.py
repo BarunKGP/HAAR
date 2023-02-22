@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class Model(nn.Module):
-    def __init__(self, input_feature_length):
+    def __init__(self):
         super().__init__()
 
         self.conv1 = nn.Sequential(
@@ -12,3 +12,14 @@ class Model(nn.Module):
             nn.ReLU()
         )
         self.attention = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        model_output = None
+        frame_features = self.conv1(x)
+
+        # TODO: Complete attention module
+
+
+        return  model_output
+
+        

@@ -12,6 +12,13 @@ from utils import get_sec
 # config = ConfigParser()
 # config.read(r'config.ini')
 
+"""
+Custom PyTorch Dataset class that creates the dataset from 
+the pickle files. It returns the rgb, flow and narration 
+embeddings concatenated into a tensor. Stride is implemented 
+so that we only consider 1 frame per stride. This helps us reduce
+the dataset size and improve computation time.
+"""
 
 class FrameLoader(Dataset):
     def __init__(self, loc, info_loc, train: bool = True) -> None:
