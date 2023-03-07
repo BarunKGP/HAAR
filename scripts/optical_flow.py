@@ -76,10 +76,11 @@ def create_features(image_files1, image_files2):
 
 def main():
     img_root = '../../2g1n6qdydwa9u22shpxqzp0t8m/P01/flow_frames/P01_101'
-    image_files1, image_files2 = glob(os.path.join(img_root, 'u/*91.jpg')), glob(os.path.join(img_root, 'v/*91.jpg'))
+    image_files1, image_files2 = glob(os.path.join(img_root, 'u/frame_0000045937.jpg')), glob(os.path.join(img_root, 'v/frame_0000045937.jpg'))
     image_files1, image_files2 = sorted(image_files1), sorted(image_files2)
 
     print(f'Found {len(image_files1)}, {len(image_files2)} images')
+    flow = create_features(image_files1, image_files2)
     # print(sorted(image_files))
 
 if __name__ == '__main__':
