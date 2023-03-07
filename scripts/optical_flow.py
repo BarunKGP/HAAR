@@ -38,11 +38,12 @@ model.load_state_dict(ckpt)
 def load_image(imfile, device):
     img = np.array(Image.open(imfile)).astype(np.uint8)
     print(img.shape)
-    img = torch.from_numpy(img).permute(2, 0, 1).float()
+    img = torch.from_numpy(img).float()
     return img[None].to(device)
 
 
 def viz(img1, img2, flo):
+    # TODO: change dimensions for grayscale
     img1 = img1[0].permute(1,2,0).cpu().numpy()
     img2 = img2[0].permute(1,2,0).cpu().numpy()
     flo = flo[0].permute(1,2,0).cpu().numpy()
