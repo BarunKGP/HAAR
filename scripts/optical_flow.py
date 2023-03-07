@@ -37,6 +37,7 @@ model.load_state_dict(ckpt)
 # image_files = sorted(image_files)
 def load_image(imfile, device):
     img = np.array(Image.open(imfile)).astype(np.uint8)
+    img = img[None] # for grayscale images only
     print(img.shape)
     img = torch.from_numpy(img).float()
     return img[None].to(device)
