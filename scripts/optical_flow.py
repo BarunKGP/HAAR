@@ -81,3 +81,6 @@ def main():
 
     print(f'Found {len(image_files1)}, {len(image_files2)} images')
     # print(sorted(image_files))
+
+if __name__ == '__main__':
+    main()
