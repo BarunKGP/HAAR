@@ -1,20 +1,23 @@
 name: torch-zoo
 channels:
-  - pytorch
+  - nvidia
   - conda-forge
+  - pytorch
   - defaults
 dependencies:
   - python==3.8.5
+  - cudatoolkit
   - numpy
-  - pytorch==1.7.1
+  - pytorch
   - torchvision
   - opencv
-  - pillow
   - pip==20.2.2=py38_0
   - matplotlib
   - pandas
-  - ipykernel
+  - jupyter
+  - pytest
   - pip:
+    - pillow
     - ftfy
     - regex
     - tqdm
