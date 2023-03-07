@@ -69,6 +69,7 @@ def create_features(image_files1, image_files2):
         padder = InputPadder(image1.shape)
         image1, image2 = padder.pad(image1, image2)
         print(f'image1.shape = {image1.shape}, image2.shape = {image2.shape}')
+        flow_up = None
         with torch.no_grad():
             flow_low, flow_up = model(image1, image2, iters=20, test_mode=True)
             print(f'flow_low.shape = {flow_low.shape}, flow_up.shape = {flow_up.shape}')
