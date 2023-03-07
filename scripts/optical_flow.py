@@ -58,17 +58,26 @@ def viz(img1, img2, flo):
     ax3.imshow(flo)
     plt.show()
 
-def create_features(image_files):
+def create_features(image_files1, image_files2):
     model.eval()
 
-    for file1, file2 in tqdm(zip(image_files[:-1], image_files[1:])):
+    for file1, file2 in tqdm(zip(image_files1, image_files2)):
         image1 = load_image(file1, device)
         image2 = load_image(file2, device)
 
         padder = InputPadder(image1.shape)
         image1, image2 = padder.pad(image1, image2)
-        
+        print(f'image1.shape = {image1.shape}, image2.shape = {image2.shape}')
         with torch.no_grad():
             flow_low, flow_up = model(image1, image2, iters=20, test_mode=True)
-            
+            print(f'flow_low.shape = {flow_low.shape}, flow_up.shape = {flow_up.shape}')
 
+    return flow_up
+
+def main():
+    img_root = '../../2g1n6qdydwa9u22shpxqzp0t8m/P01/flow_frames/P01_101'
+    image_files1, image_files2 = glob(os.path.join(img_root, 'u/*91.jpg')), glob(os.path.join(img_root, 'v/*91.jpg'))
+    image_files1, image_files2 = sorted(image_files1), sorted(image_files2)
+
+    print(f'Found {len(image_files1)}, {len(image_files2)} images')
+    # print(sorted(image_files))
