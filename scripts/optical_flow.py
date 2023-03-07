@@ -37,9 +37,7 @@ model.load_state_dict(ckpt)
 # image_files = sorted(image_files)
 def load_image(imfile, device):
     img = np.array(Image.open(imfile)).astype(np.uint8)
-    img = img[None] # for grayscale images only
-    print(img.shape)
-    img = torch.from_numpy(img).float()
+    img = torch.from_numpy(img).permute(2, 0, 1).float()
     return img[None].to(device)
 
 
@@ -78,8 +76,8 @@ def create_features(image_files1, image_files2):
     return flow_up
 
 def main():
-    img_root = '../../2g1n6qdydwa9u22shpxqzp0t8m/P01/flow_frames/P01_101'
-    image_files1, image_files2 = glob(os.path.join(img_root, 'u/frame_0000045937.jpg')), glob(os.path.join(img_root, 'v/frame_0000045937.jpg'))
+    img_root = '../../2g1n6qdydwa9u22shpxqzp0t8m/P01/rgb_frames/P01_101'
+    image_files1, image_files2 = glob(os.path.join(img_root, 'u/frame_0000045937.jpg')), glob(os.path.join(img_root, 'v/frame_0000045940.jpg'))
     image_files1, image_files2 = sorted(image_files1), sorted(image_files2)
 
     print(f'Found {len(image_files1)}, {len(image_files2)} images')
