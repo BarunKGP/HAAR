@@ -76,6 +76,21 @@ def create_features(image_files1, image_files2):
 
     return flow_up
 
+def stack_flow_frames(image_files):
+    stacked_image = None
+    for f in tqdm(image_files):
+        img = np.array(Image.open(f)).astype(np.uint8)
+        if stacked_image is None:
+            stacked_image = img.copy()
+            print(f'shape of image is: {img.shape}')
+        else:
+            stacked_image = np.hstack([stacked_image, img])
+
+    print(f'shape of the stacked image: {stacked_image.shape}')
+             
+
+
+
 def main():
     img_root = '../../2g1n6qdydwa9u22shpxqzp0t8m/P01/rgb_frames/P01_101'
     image_files1, image_files2 = glob(os.path.join(img_root, 'frame_0000045937.jpg')), glob(os.path.join(img_root, 'frame_0000045940.jpg'))
@@ -84,6 +99,11 @@ def main():
     print(f'Found {len(image_files1)}, {len(image_files2)} images')
     flow = create_features(image_files1, image_files2)
     # print(sorted(image_files))
+
+    img_root = '../../2g1n6qdydwa9u22shpxqzp0t8m/P01/flow_frames/P01_101'
+    image_files = glob(os.path.join(img_root, 'u/*.jpg'))
+    stacked_image = stack_flow_frames(image_files)
+
 
 if __name__ == '__main__':
     main()
