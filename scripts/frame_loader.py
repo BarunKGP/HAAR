@@ -1,16 +1,24 @@
 import os
 import pickle
-from configparser import ConfigParser
+# from configparser import ConfigParser
 from typing import Any, List, Tuple
 
 import pandas
-from clip_features import get_feats
-from torch.utils.data import Dataset, DataLoader
+from clip_features import get_features
+from constants import DATA_ROOT, STRIDE
+from torch.utils.data import Dataset
 from utils import get_sec
 
-config = ConfigParser()
-config.read('config.ini')
+# config = ConfigParser()
+# config.read(r'config.ini')
 
+"""
+Custom PyTorch Dataset class that creates the dataset from 
+the pickle files. It returns the rgb, flow and narration 
+embeddings concatenated into a tensor. Stride is implemented 
+so that we only consider 1 frame per stride. This helps us reduce
+the dataset size and improve computation time.
+"""
 
 class FrameLoader(Dataset):
     def __init__(self, loc, info_loc, train: bool = True) -> None:
@@ -31,7 +39,7 @@ class FrameLoader(Dataset):
                 the dataset as a list of tuple values
         """
         try:
-            with open(file_loc, 'xb') as handle:
+            with open(file_loc, 'rb') as handle:
                 df: pandas.DataFrame = pickle.load(handle)
         except:
             raise FileNotFoundError(f'Invalid pickle location: {file_loc}')
@@ -45,8 +53,7 @@ class FrameLoader(Dataset):
         self.dataset: [(
                 participant_root_dir, 
                 video_id, 
-                start_frame,
-                end_frame, 
+                frame_id, 
                 narration_text
             )]
 
@@ -59,20 +66,21 @@ class FrameLoader(Dataset):
         for index, row in self.data_df.iterrows():
             video_id, participant_id, narr_timestamp, narr_text = (
                 row['video_id'], row['participant_id'], row['narration_timestamp'], row['narration'])
-            FRAME_RATE = float(
+            frame_rate = float(
                 self.video_info_df.loc[self.video_info_df['video_id'] == video_id]['fps'].iat[0])
-            start_frame = int(get_sec(narr_timestamp) * FRAME_RATE)
+            start_frame = int(get_sec(narr_timestamp) * frame_rate)
             if index == len(self.data_df) - 1:
                 end_frame = int(self.video_info_df.loc[self.video_info_df['video_id'] == video_id]
-                                ['duration'].iat[0] * FRAME_RATE) + 1  # Check this logic
+                                ['duration'].iat[0] * frame_rate) + 1
             else:
-                end_frame = int(
-                    get_sec(self.data_df.at[index + 1, 'narration_timestamp']) * FRAME_RATE)
+                end_frame = int(get_sec(self.data_df.at[index + 1, 'narration_timestamp']) * frame_rate)
 
-            participant_root_dir = os.path.join(
-                config.get('default', 'data_root'), participant_id)
-            self.dataset.append(
-                (participant_root_dir, video_id, start_frame, end_frame, narr_text))
+            participant_root_dir = os.path.join(DATA_ROOT, participant_id)
+            
+            for frame in range(start_frame, end_frame, STRIDE):
+                frame_id = 'frame_' + str(frame).zfill(10) + '.jpg'
+                self.dataset.append((participant_root_dir, video_id, frame_id, narr_text))
+
         print('Created dataset')
         
 
@@ -80,37 +88,17 @@ class FrameLoader(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, idx: str) -> Any:
-        """_summary_
+        """Default Dataset function
 
         Args:
-            idx (str): _description_
+            idx (str): index
 
         Returns:
-            video_id (str): Returns video id of corresponding video.
-            feat (dict): Returns a dict containing multimodal features.
-                 feats: {
-                    'rgb_frames': torch.Tensor(size=(n_frames, 512)),
-                    'flow_frames: torch.Tensor(size=(n_frames, 1024)),
-                    'narration': torch.Tensor(size=(1, 512))
-                    }
+            video_id (str): video id of corresponding video
+            frame_id (str): frame id of the clip
+            feat (torch.Tensor): fused multimodal features of
+                size (4096,)
         """
-        STRIDE = config.getint('feature_extraction', 'stride')
-        root, video_id, start, end, narr = self.dataset[idx]
-        feats = get_feats(root, video_id, start, end, narr, stride=STRIDE)
-        return video_id, feats
-
-if __name__ == '__main__':
-    pickle_root = config.get('default', 'pickle_root')
-    loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl')
-    info_loc = os.path.join(pickle_root, 'video_info.pkl')
-    print(f'loc = {loc}, info_loc = {info_loc}')
-    dataset = FrameLoader(
-        loc = os.path.join(pickle_root, 'samples/df_train100_first10.pkl'), 
-        info_loc = os.path.join(pickle_root, 'video_info.pkl')
-        )
-    loader = DataLoader(dataset, shuffle=True, batch_size=8)
-
-    for video_id, feats in loader:
-        print(f"Video {video_id} \t feature shape: rgb = {feats['rgb_frames'].shape}, flow = {feats['flow_frames'].shape}, narration = {feats['narration'].shape}")
-
-
+        root, video_id, frame_id, narr = self.dataset[idx]
+        feats = get_features(root, video_id, frame_id, narr)
+        return (video_id, frame_id, feats)
