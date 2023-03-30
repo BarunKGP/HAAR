@@ -27,7 +27,7 @@ def get_dataloader(train=True):
 
 if __name__ == '__main__':
     loader = get_dataloader()
-    print('Obtained dataloader')
+    print(f'Obtained dataloader: length = {len(loader)}')
     for (v, f, feats) in loader:
         print(feats.shape)
     
