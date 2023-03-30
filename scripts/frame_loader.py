@@ -3,7 +3,6 @@ import pickle
 # from configparser import ConfigParser
 from typing import Any, List, Tuple
 
-import pandas
 from clip_features import get_features
 from constants import DATA_ROOT, STRIDE
 from torch.utils.data import Dataset
@@ -40,7 +39,7 @@ class FrameLoader(Dataset):
         """
         try:
             with open(file_loc, 'rb') as handle:
-                df: pandas.DataFrame = pickle.load(handle)
+                df = pickle.load(handle)
         except:
             raise FileNotFoundError(f'Invalid pickle location: {file_loc}')
 

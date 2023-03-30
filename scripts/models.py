@@ -6,15 +6,7 @@ from constants import WORD_EMBEDDING_SIZE
 from utils import get_device
 
 # Neural Network configs
-device = get_device()
-conv1 = nn.Sequential(
-            nn.Conv1d(1, 1024, 3),
-            nn.ReLU(),
-            nn.Conv1d(1024, WORD_EMBEDDING_SIZE, 3), # alt. strategy: keep 100 neurons and pad to match shape of word embeddings
-            nn.ReLU()
-        )
-
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device=get_device())
 
 # WORD EMBEDDINGS
 class WordEmbeddings(nn.Module):
@@ -25,7 +17,7 @@ class WordEmbeddings(nn.Module):
 
     def forward(self, text):
         embedding = self.model.encode(text)
-        return embedding
+        return embedding.cpu()
 
     
 # ATTENTION MODEL
@@ -45,6 +37,7 @@ class AttentionModel(nn.Module):
         self.conv1 = nn.Sequential(
             nn.Conv1d(1, 1024, 3),
             nn.ReLU(),
+            nn.Dropout(0.5),
             nn.Conv1d(1024, WORD_EMBEDDING_SIZE, 3),
             nn.ReLU()
         )
@@ -77,10 +70,10 @@ class AttentionModel(nn.Module):
             torch.Tensor: _description_
         """
         if mode == 'verb':
-            embeddings = self.verb_embeddings
+            embeddings = self.verb_embeddings.to(self.device)
             linear_layer = self.linear_verb
         elif mode == 'noun':
-            embeddings = self.noun_embeddings
+            embeddings = self.noun_embeddings.to(self.device)
             linear_layer = self.linear_noun
         else:
             raise Exception('Invalid mode: choose either "noun" or "verb"')        

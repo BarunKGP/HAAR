@@ -4,6 +4,8 @@ import clip
 import torch
 from PIL import Image
 
+from utils import get_device
+
 def get_features(root: str, video_id: str, frame_id: str, narr: str) -> torch.Tensor:
     """_summary_
 
@@ -47,7 +49,7 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
     Returns:
         _type_: _description_
     """
-    device = "cuda:1" if torch.cuda.is_available() else "cpu"
+    device = get_device()
     model, preprocess = clip.load("RN50", device=device) # TODO: parameterize these
 
     assert type(data) == list, "data should be a list"
@@ -77,4 +79,4 @@ def get_clip_features(data, modality: str = 'rgb_frames'):
     else:
         raise Exception("Invalid modality")
     
-    return feats.squeeze()
+    return feats.cpu().squeeze()

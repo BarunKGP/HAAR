@@ -3,19 +3,20 @@ import os
 import torch
 from tqdm import tqdm
 from frame_loader import FrameLoader
-from constants import BATCH_SIZE, PICKLE_ROOT, NUM_NOUNS, NUM_VERBS
+from constants import BATCH_SIZE, PICKLE_ROOT, NUM_NOUNS, NUM_VERBS, VERB_CLASSES, NOUN_CLASSES
 
 import pandas as pd
 import pickle
 
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+import torch.nn as nn
 from models import AttentionModel, WordEmbeddings
 
 from utils import ActionMeter, AverageMeter, get_device
 
 
-def get_dataloader():
+def get_dataloader(train=True):
     dataset = FrameLoader(
         loc = os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'),
         info_loc= os.path.join(PICKLE_ROOT, 'video_info.pkl')
@@ -24,17 +25,21 @@ def get_dataloader():
     return dataloader
 
 if __name__ == '__main__':
-    loader = get_dataloader(train=True)
+    loader = get_dataloader()
     for (v, f, feats) in loader:
         print(feats.shape)
+    
+    # with open(os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'), 'rb') as handle:
+    #     df = pickle.load(handle)
+    # optimizer = torch.optim.Adam(lr=1e-5, weight_decay=1e-5)
+    # trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, optimizer, nn.CrossEntropyLoss(), df)
 
 
-class Trainer:
-    def __init__(self, verb_loc, noun_loc, optimizer, loss_fn, df_train, num_epochs = 500) -> None:
+class Trainer(object):
+    def __init__(self, verb_loc, noun_loc, optimizer, loss_fn, df_train) -> None:
         self.opt = optimizer
         self.loss_fn = loss_fn
         self.df_train = df_train
-        self.num_epochs = num_epochs
         
         self.train_loader = get_dataloader()
         self.val_loader = get_dataloader(train=False)
@@ -103,6 +108,7 @@ class Trainer:
             batch_acc_verb = self.compute_accuracy(predictions_verb, verb_class)
             train_acc_meter.update(batch_acc_noun, batch_acc_verb, n=n)
 
+            # Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
             batch_loss = self.compute_loss(predictions_verb, self.verb_one_hot[verb_class]) + self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
             train_loss_meter.update(val=float(batch_loss.cpu().item()), n=n)
 
@@ -127,6 +133,7 @@ class Trainer:
 
         return loss
 
+    # baseline paper used num_epochs = 3e6
     def training_loop(self, num_epochs=500, train=True):
         """Run the main training loop for the model.
         May need to run separate loops for train/test.
