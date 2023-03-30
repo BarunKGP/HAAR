@@ -62,8 +62,11 @@ class FrameLoader(Dataset):
         """
         if self.video_info_df.empty or self.data_df.empty:
             raise Exception("Empty DataFrame")
-
+        i = 0
         for index, row in self.data_df.iterrows():
+            i += 1
+            if i > 2:
+                break
             video_id, participant_id, narr_timestamp, narr_text = (
                 row['video_id'], row['participant_id'], row['narration_timestamp'], row['narration'])
             frame_rate = float(
