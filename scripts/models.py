@@ -35,7 +35,7 @@ class AttentionModel(nn.Module):
         self.device = get_device()
 
         self.layer1 = nn.Sequential(
-            nn.Conv1d(in_channels=1, out_channels=100, kernel_size=3),
+            nn.Conv1d(in_channels=1, out_channels=100, kernel_size=3, device=self.device),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(4094, WORD_EMBEDDING_SIZE)
