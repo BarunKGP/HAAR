@@ -184,10 +184,13 @@ class Trainer(object):
                 self.save_model(model_save_path)
 
 if __name__ == '__main__':
-    loader = get_dataloader()
-    print(f'Obtained dataloader: length = {len(loader)}')
-    # for (v, f, feats) in loader:
-    #     print(feats.shape)
+    model = WordEmbeddings()
+    print(model(['the tap water is cold']))
+
+    # loader = get_dataloader()
+    # print(f'Obtained dataloader: length = {len(loader)}')
+    # # for (v, f, feats) in loader:
+    # #     print(feats.shape)
     
-    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss())
-    trainer.training_loop(num_epochs=1)
+    # trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss())
+    # trainer.training_loop(num_epochs=1)
