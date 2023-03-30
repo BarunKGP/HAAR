@@ -43,12 +43,13 @@ class Trainer(object):
         self.verb_map = get_word_map(verb_loc)
         self.noun_map = get_word_map(noun_loc)
         
+        self.embedding_model = WordEmbeddings()
+        
         self.verb_embeddings = self.get_embeddings('verb')
         self.noun_embeddings = self.get_embeddings('noun')
         self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
         self.noun_one_hot = F.one_hot(torch.arange(0, NUM_NOUNS))
 
-        self.embedding_model = WordEmbeddings()
         self.attention_model = AttentionModel(
                         self.verb_embeddings,
                         self.noun_embeddings,
@@ -184,16 +185,10 @@ class Trainer(object):
                 self.save_model(model_save_path)
 
 if __name__ == '__main__':
-    model = WordEmbeddings()
-    x = model(['the tap water is cold'])
-    print(x)
-    print(type(x))
-    print(torch.get_device(x))
-
-    # loader = get_dataloader()
-    # print(f'Obtained dataloader: length = {len(loader)}')
-    # # for (v, f, feats) in loader:
-    # #     print(feats.shape)
+    loader = get_dataloader()
+    print(f'Obtained dataloader: length = {len(loader)}')
+    # for (v, f, feats) in loader:
+    #     print(feats.shape)
     
-    # trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss())
-    # trainer.training_loop(num_epochs=1)
+    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss())
+    trainer.training_loop(num_epochs=1)
