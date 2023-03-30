@@ -1,14 +1,14 @@
 import os
 from frame_loader import FrameLoader
-from scripts.constants import BATCH_SIZE, PICKLE_ROOT
+from constants import BATCH_SIZE, PICKLE_ROOT
 
 import pandas as pd
 import pickle
 
 from torch.utils.data import DataLoader
-from scripts.models import AttentionModel, WordEmbeddings
+from models import AttentionModel, WordEmbeddings
 
-from scripts.utils import AverageMeter, get_device
+from utils import AverageMeter, get_device
 
 
 def get_dataloader():

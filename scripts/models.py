@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 from sentence_transformers import SentenceTransformer
 
-from scripts.constants import WORD_EMBEDDING_SIZE
-from scripts.utils import AverageMeter, get_device
+from constants import WORD_EMBEDDING_SIZE
+from utils import AverageMeter, get_device
 
 # Neural Network configs
 device = get_device()
