@@ -25,23 +25,32 @@ def get_dataloader(train=True):
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
     return dataloader
 
+def get_word_map(file_loc):
+    try:
+        with open(file_loc, 'rb') as handle:
+            df = pickle.load(handle)
+    except:
+        raise FileNotFoundError(f'Invalid pickle location: {file_loc}')
+    
+    return df[['id', 'key']]
+
 class Trainer(object):
-    def __init__(self, verb_loc, noun_loc, optimizer, loss_fn) -> None:
-        self.opt = optimizer
+    def __init__(self, verb_loc, noun_loc, loss_fn) -> None:
         self.loss_fn = loss_fn
         
         self.train_loader = get_dataloader()
         self.val_loader = get_dataloader(train=False)
         self.device = get_device()
+        self.verb_map = get_word_map(verb_loc)
+        self.noun_map = get_word_map(noun_loc)
         
         self.embedding_model = WordEmbeddings()
         self.attention_model = AttentionModel(
                         self.verb_map,
                         self.noun_map
                     )
+        self.opt = torch.optim.Adam(self.attention_model.parameters(), lr=1e-5, weight_decay=1e-5)
         
-        self.verb_map = self.get_word_map(verb_loc)
-        self.noun_map = self.get_word_map(noun_loc)
         self.verb_embeddings = self.get_embeddings('verb')
         self.noun_embeddings = self.get_embeddings('noun')
         self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
@@ -63,15 +72,21 @@ class Trainer(object):
         embeddings = self.embedding_model(text)
         return embeddings
 
-    def get_word_map(self, file_loc):
-        try:
-            with open(file_loc, 'rb') as handle:
-                df = pickle.load(handle)
-        except:
-            raise FileNotFoundError(f'Invalid pickle location: {file_loc}')
-        
-        return df[['id', 'key']]
+    def get_model(self):
+        return self.attention_model
     
+    def save_model(self, path=os.getcwd()) -> None:
+        """
+        Saves the model state and optimizer state on the dict
+        """
+        torch.save(
+            {
+                "model_state_dict": self.attention_model.state_dict(),
+                "optimizer_state_dict": self.opt.state_dict(),
+            },
+            os.path.join(path, "checkpoint.pt"),
+        )
+  
     def _train(self, train=True):
         """Run the training loop for one epoch.
         Calculate and return the loss and accuracy.
@@ -110,9 +125,9 @@ class Trainer(object):
             train_loss_meter.update(val=float(batch_loss.cpu().item()), n=n)
 
             if train:
-                self.optimizer.zero_grad()
+                self.attention_model.zero_grad(set_to_none=True)
                 batch_loss.backward()
-                self.optimizer.step()
+                self.opt.step()
 
         return train_loss_meter.avg, train_acc_meter.avg_verb, train_acc_meter.avg_noun
 
@@ -131,7 +146,7 @@ class Trainer(object):
         return loss
 
     # baseline paper used num_epochs = 3e6
-    def training_loop(self, num_epochs=500):
+    def training_loop(self, num_epochs=500, save_model=False, model_save_path=None):
         """Run the main training loop for the model.
         May need to run separate loops for train/test.
 
@@ -156,7 +171,12 @@ class Trainer(object):
                 + f" Train Accuracy (verb/noun): {verb_acc:.4f}/{noun_acc:.4f}"
                 # + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
             )
-
+        
+        if save_model:
+            if model_save_path is None:
+                self.save_model()
+            else:
+                self.save_model(model_save_path)
 
 if __name__ == '__main__':
     loader = get_dataloader()
@@ -164,6 +184,5 @@ if __name__ == '__main__':
     # for (v, f, feats) in loader:
     #     print(feats.shape)
     
-    optimizer = torch.optim.Adam(lr=1e-5, weight_decay=1e-5)
-    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, optimizer, nn.CrossEntropyLoss())
+    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss())
     trainer.training_loop(num_epochs=1)
