@@ -16,7 +16,7 @@ class WordEmbeddings(nn.Module):
         self.device = get_device()
 
     def forward(self, text):
-        embedding = self.model.encode(text).detach().cpu()
+        embedding = self.model.encode(text)
         return embedding
 
     

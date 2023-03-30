@@ -185,7 +185,10 @@ class Trainer(object):
 
 if __name__ == '__main__':
     model = WordEmbeddings()
-    print(model(['the tap water is cold']))
+    x = model(['the tap water is cold'])
+    print(x)
+    print(x.type)
+    print(torch.get_device(x))
 
     # loader = get_dataloader()
     # print(f'Obtained dataloader: length = {len(loader)}')
