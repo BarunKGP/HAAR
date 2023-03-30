@@ -16,8 +16,8 @@ class WordEmbeddings(nn.Module):
         self.device = get_device()
 
     def forward(self, text):
-        embedding = self.model.encode(text)
-        return embedding.cpu()
+        embedding = self.model.encode(text).detach().cpu()
+        return embedding
 
     
 # ATTENTION MODEL
@@ -35,7 +35,7 @@ class AttentionModel(nn.Module):
         self.device = get_device()
 
         self.conv1 = nn.Sequential(
-            nn.Conv1d(1, 1024, 3),
+            nn.Conv1d(4096, 1024, 3),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Conv1d(1024, WORD_EMBEDDING_SIZE, 3),
@@ -83,14 +83,14 @@ class AttentionModel(nn.Module):
         aware = attention[key]
         weighted_features = torch.matmul(aware, frame_features)/torch.sum(aware, dim=-1) 
         predictions = linear_layer(weighted_features).T
-        predictions = self.softmax(predictions).cpu()
+        predictions = self.softmax(predictions)
 
         return predictions
     
     def forward(self, x: torch.Tensor, verb_class, noun_class):
         x = x.to(self.device)
         frame_features = self.conv1(x)
-        verb_predictions = self._predictions(frame_features, verb_class, 'verb')
-        noun_predictions = self._predictions(frame_features, noun_class, 'noun')
+        verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
+        noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
 
         return verb_predictions, noun_predictions

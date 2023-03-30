@@ -1,3 +1,4 @@
+import gc
 import os
 
 import torch
@@ -111,9 +112,8 @@ class Trainer(object):
         # loop over each minibatch
         for (feats, verb_class, noun_class) in tqdm(loader):
             feats = feats.to(self.device)
-            n = feats.shape[0]
+            n = feats.shape[0] # batch_size
 
-            #* assert feats.size() == [b, WORD_EMBEDDING_SIZE]
             predictions_verb, predictions_noun = self.attention_model(feats, verb_class, noun_class)
 
             batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
@@ -171,6 +171,11 @@ class Trainer(object):
                 + f" Train Accuracy (verb/noun): {verb_acc:.4f}/{noun_acc:.4f}"
                 # + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
             )
+
+            print('GPU usage:')
+            print(torch.cuda.list_gpu_processes())
+            gc.collect()
+            torch.cuda.empty_cache()
         
         if save_model:
             if model_save_path is None:
