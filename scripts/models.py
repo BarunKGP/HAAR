@@ -34,12 +34,11 @@ class AttentionModel(nn.Module):
         self.C_noun = len(self.noun_map)
         self.device = get_device()
 
-        self.conv1 = nn.Sequential(
-            nn.Conv1d(4096, 1024, 3),
+        self.layer1 = nn.Sequential(
+            nn.Conv1d(1, 100, 5),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Conv1d(1024, WORD_EMBEDDING_SIZE, 3),
-            nn.ReLU()
+            nn.Linear(4094, WORD_EMBEDDING_SIZE)
         )
         self.linear_verb = nn.Linear(WORD_EMBEDDING_SIZE, self.C_verb, bias=True)
         self.linear_noun = nn.Linear(WORD_EMBEDDING_SIZE, self.C_noun, bias=True)
@@ -49,14 +48,22 @@ class AttentionModel(nn.Module):
         """_summary_
 
         ------ Shape logic ------
-        f = [b, D]
-        w1 = [C, D]
-        A = w1 @ f.T = [C, b]
-        Ai = A[verb] = [1, b]
-        F_i = Ai @ f = [b, D]
+        f = [b, 100, D]
+        w1 = [b, C, D]
+        A = f @ w1 = [b, 100, C]
+        Ai = A.T[verb] = [100, b]
+        F_i = Ai.permute(0, 2, 1) @ f = [b, D, b]
         P = W2(F_i).T = [b, C]
         res = softmax(P) = [b, C]
         --------------------------
+        f = [b, D, 100]
+        w1 = [b, C, D]
+        A = w1@f = [b, C, 100]
+        Ai = A.T[:, verb, :] = [b, 1, 100]
+        F_i = Ai @ f.permute(0, 2, 1) = [b, 1, D]
+        P = W2(F_i) = [b, 1, C]
+        res = softmax(P) = [b, 1, C]
+        ----------------------------
 
         Args:
             frame_features (_type_): _description_
@@ -79,17 +86,17 @@ class AttentionModel(nn.Module):
             raise Exception('Invalid mode: choose either "noun" or "verb"')        
         
         # attention = torch.sigmoid(torch.sum(embeddings * frame_features.T, dim=-1)) # hacky way to do rowwise dot product. Link: https://stackoverflow.com/questions/61875963/pytorch-row-wise-dot-product
-        attention = torch.sigmoid(torch.matmul(embeddings, frame_features.T)) # shape: [C, b]
-        aware = attention[key]
-        weighted_features = torch.matmul(aware, frame_features)/torch.sum(aware, dim=-1) 
-        predictions = linear_layer(weighted_features).T
+        attention = torch.sigmoid(torch.matmul(embeddings, frame_features)) # shape: [b, C, 100]
+        aware = attention[:, key:, ]
+        weighted_features = torch.matmul(aware, frame_features.permute(0, 2, 1))/torch.sum(aware, dim=-1) 
+        predictions = linear_layer(weighted_features)
         predictions = self.softmax(predictions)
 
         return predictions
     
     def forward(self, x: torch.Tensor, verb_class, noun_class):
-        x = x.to(self.device)
-        frame_features = self.conv1(x)
+        x = x[:, None, :]
+        frame_features = self.layer1(x)
         verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
         noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
 
