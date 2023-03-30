@@ -7,7 +7,6 @@ from frame_loader import FrameLoader
 from constants import BATCH_SIZE, PICKLE_ROOT, NUM_NOUNS, NUM_VERBS, VERB_CLASSES, NOUN_CLASSES
 
 import pandas as pd
-import pickle
 
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
@@ -44,17 +43,19 @@ class Trainer(object):
         self.verb_map = get_word_map(verb_loc)
         self.noun_map = get_word_map(noun_loc)
         
-        self.embedding_model = WordEmbeddings()
-        self.attention_model = AttentionModel(
-                        self.verb_map,
-                        self.noun_map
-                    )
-        self.opt = torch.optim.Adam(self.attention_model.parameters(), lr=1e-5, weight_decay=1e-5)
-        
         self.verb_embeddings = self.get_embeddings('verb')
         self.noun_embeddings = self.get_embeddings('noun')
         self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
         self.noun_one_hot = F.one_hot(torch.arange(0, NUM_NOUNS))
+
+        self.embedding_model = WordEmbeddings()
+        self.attention_model = AttentionModel(
+                        self.verb_embeddings,
+                        self.noun_embeddings,
+                        self.verb_map,
+                        self.noun_map
+                    )
+        self.opt = torch.optim.Adam(self.attention_model.parameters(), lr=1e-5, weight_decay=1e-5)
 
         self.train_loss_history = []
         self.validation_loss_history = []
