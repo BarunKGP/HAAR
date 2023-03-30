@@ -25,18 +25,6 @@ def get_dataloader(train=True):
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
     return dataloader
 
-if __name__ == '__main__':
-    loader = get_dataloader()
-    print(f'Obtained dataloader: length = {len(loader)}')
-    for (v, f, feats) in loader:
-        print(feats.shape)
-    
-    # with open(os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'), 'rb') as handle:
-    #     df = pickle.load(handle)
-    # optimizer = torch.optim.Adam(lr=1e-5, weight_decay=1e-5)
-    # trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, optimizer, nn.CrossEntropyLoss(), df)
-
-
 class Trainer(object):
     def __init__(self, verb_loc, noun_loc, optimizer, loss_fn, df_train) -> None:
         self.opt = optimizer
@@ -97,7 +85,7 @@ class Trainer(object):
         train_acc_meter = AverageMeter("train accuracy")
 
         # loop over each minibatch
-        for (video_id, frame_id, feats) in loader:
+        for (video_id, frame_id, feats) in tqdm(loader):
             feats = feats.to(self.device)
             n = feats.shape[0]
             verb_class = self.df_train[self.df_train['video_id'] == video_id & self.df_train['frame_id'] == frame_id]['verb_class']
@@ -150,14 +138,27 @@ class Trainer(object):
             self.train_loss_history.append(train_loss)
             self.train_accuracy_history.append((verb_acc, noun_acc))
 
-            val_loss, val_verb_acc, val_noun_acc = self._train(train=False)
-            self.validation_loss_history.append(val_loss)
-            self.validation_accuracy_history.append(val_acc)
+            # val_loss, val_verb_acc, val_noun_acc = self._train(train=False)
+            # self.validation_loss_history.append(val_loss)
+            # self.validation_accuracy_history.append((val_verb_acc, val_noun_acc))
 
             print(
                 f"Epoch:{epoch + 1}"
                 + f" Train Loss:{train_loss:.4f}"
-                + f" Val Loss: {val_loss:.4f}"
+                # + f" Val Loss: {val_loss:.4f}"
                 + f" Train Accuracy (verb/noun): {verb_acc:.4f}/{noun_acc:.4f}"
-                + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
+                # + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
             )
+
+
+if __name__ == '__main__':
+    loader = get_dataloader()
+    print(f'Obtained dataloader: length = {len(loader)}')
+    # for (v, f, feats) in loader:
+    #     print(feats.shape)
+    
+    with open(os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'), 'rb') as handle:
+        df = pickle.load(handle)
+    optimizer = torch.optim.Adam(lr=1e-5, weight_decay=1e-5)
+    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, optimizer, nn.CrossEntropyLoss(), df)
+    trainer.training_loop(num_epochs=1)
