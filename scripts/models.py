@@ -97,6 +97,9 @@ class AttentionModel(nn.Module):
     def forward(self, x: torch.Tensor, verb_class, noun_class):
         x = x[:, None, :]
         print(f'x.shape = {x.size()}')
+        self.layer1 = self.layer1.to(x.device)
+        print(self.x.device)
+        print(self.layer1.device)
         frame_features = self.layer1(x)
         verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
         noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
