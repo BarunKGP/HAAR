@@ -26,10 +26,9 @@ def get_dataloader(train=True):
     return dataloader
 
 class Trainer(object):
-    def __init__(self, verb_loc, noun_loc, optimizer, loss_fn, df_train) -> None:
+    def __init__(self, verb_loc, noun_loc, optimizer, loss_fn) -> None:
         self.opt = optimizer
         self.loss_fn = loss_fn
-        self.df_train = df_train
         
         self.train_loader = get_dataloader()
         self.val_loader = get_dataloader(train=False)
@@ -74,6 +73,16 @@ class Trainer(object):
         return df[['id', 'key']]
     
     def _train(self, train=True):
+        """Run the training loop for one epoch.
+        Calculate and return the loss and accuracy.
+        Separate loop for val/test - no backprop.
+
+        Args:
+            train (bool, optional): Defaults to True.
+
+        Returns:
+            (float, float, float): average loss and accuracy
+        """
         if train:
             self.attention_model.train()
             loader = self.train_loader
@@ -85,11 +94,9 @@ class Trainer(object):
         train_acc_meter = AverageMeter("train accuracy")
 
         # loop over each minibatch
-        for (video_id, frame_id, feats) in tqdm(loader):
+        for (feats, verb_class, noun_class) in tqdm(loader):
             feats = feats.to(self.device)
             n = feats.shape[0]
-            verb_class = self.df_train[self.df_train['video_id'] == video_id & self.df_train['frame_id'] == frame_id]['verb_class']
-            noun_class = self.df_train[self.df_train['video_id'] == video_id & self.df_train['frame_id'] == frame_id]['noun_class']
 
             #* assert feats.size() == [b, WORD_EMBEDDING_SIZE]
             predictions_verb, predictions_noun = self.attention_model(feats, verb_class, noun_class)
@@ -124,7 +131,7 @@ class Trainer(object):
         return loss
 
     # baseline paper used num_epochs = 3e6
-    def training_loop(self, num_epochs=500, train=True):
+    def training_loop(self, num_epochs=500):
         """Run the main training loop for the model.
         May need to run separate loops for train/test.
 
@@ -157,8 +164,6 @@ if __name__ == '__main__':
     # for (v, f, feats) in loader:
     #     print(feats.shape)
     
-    with open(os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'), 'rb') as handle:
-        df = pickle.load(handle)
     optimizer = torch.optim.Adam(lr=1e-5, weight_decay=1e-5)
-    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, optimizer, nn.CrossEntropyLoss(), df)
+    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, optimizer, nn.CrossEntropyLoss())
     trainer.training_loop(num_epochs=1)

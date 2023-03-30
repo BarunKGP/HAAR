@@ -66,8 +66,14 @@ class FrameLoader(Dataset):
             i += 1
             if i > 2:
                 break
-            video_id, participant_id, narr_timestamp, narr_text = (
-                row['video_id'], row['participant_id'], row['narration_timestamp'], row['narration'])
+            
+            video_id = row['video_id']
+            participant_id = row['participant_id']
+            narr_timestamp = row['narration_timestamp']
+            narr_text = row['narration']
+            verb_class = row['verb_class']
+            noun_class = row['noun_class']
+
             frame_rate = float(
                 self.video_info_df.loc[self.video_info_df['video_id'] == video_id]['fps'].iat[0])
             start_frame = int(get_sec(narr_timestamp) * frame_rate)
@@ -81,7 +87,14 @@ class FrameLoader(Dataset):
             
             for frame in range(start_frame, end_frame, STRIDE):
                 frame_id = 'frame_' + str(frame).zfill(10) + '.jpg'
-                self.dataset.append((participant_root_dir, video_id, frame_id, narr_text))
+                self.dataset.append((
+                    participant_root_dir, 
+                    video_id, 
+                    frame_id, 
+                    narr_text, 
+                    verb_class, 
+                    noun_class
+                ))
 
         print('Created dataset...')
         
@@ -101,6 +114,6 @@ class FrameLoader(Dataset):
             feat (torch.Tensor): fused multimodal features of
                 size (4096,)
         """
-        root, video_id, frame_id, narr = self.dataset[idx]
+        index, root, video_id, frame_id, narr = self.dataset[idx]
         feats = get_features(root, video_id, frame_id, narr)
         return (video_id, frame_id, feats)
