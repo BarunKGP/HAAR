@@ -114,6 +114,7 @@ class Trainer(object):
         # loop over each minibatch
         for (feats, verb_class, noun_class) in tqdm(loader):
             feats.to(self.device)
+            print(f'feats on device = {feats.device}')
             n = feats.shape[0] # batch_size
 
             predictions_verb, predictions_noun = self.attention_model(feats, verb_class, noun_class)
