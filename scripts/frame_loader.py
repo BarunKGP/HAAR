@@ -88,6 +88,7 @@ class FrameLoader(Dataset):
             for frame in range(start_frame, end_frame, STRIDE):
                 frame_id = 'frame_' + str(frame).zfill(10) + '.jpg'
                 self.dataset.append((
+                    index,
                     participant_root_dir, 
                     video_id, 
                     frame_id, 
@@ -114,6 +115,6 @@ class FrameLoader(Dataset):
             feat (torch.Tensor): fused multimodal features of
                 size (4096,)
         """
-        index, root, video_id, frame_id, narr = self.dataset[idx]
+        _, root, video_id, frame_id, narr, verb_class, noun_class = self.dataset[idx]
         feats = get_features(root, video_id, frame_id, narr)
-        return (video_id, frame_id, feats)
+        return (feats, verb_class, noun_class)
