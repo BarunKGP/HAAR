@@ -17,6 +17,7 @@ from utils import ActionMeter, AverageMeter, get_device
 
 
 def get_dataloader(train=True):
+    print('Creating dataloader...')
     dataset = FrameLoader(
         loc = os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'),
         info_loc= os.path.join(PICKLE_ROOT, 'video_info.pkl')
@@ -26,6 +27,7 @@ def get_dataloader(train=True):
 
 if __name__ == '__main__':
     loader = get_dataloader()
+    print('Obtained dataloader')
     for (v, f, feats) in loader:
         print(feats.shape)
     

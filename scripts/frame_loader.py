@@ -83,7 +83,7 @@ class FrameLoader(Dataset):
                 frame_id = 'frame_' + str(frame).zfill(10) + '.jpg'
                 self.dataset.append((participant_root_dir, video_id, frame_id, narr_text))
 
-        print('Created dataset')
+        print('Created dataset...')
         
 
     def __len__(self):
