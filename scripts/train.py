@@ -1,14 +1,18 @@
 import os
+
+import torch
+from tqdm import tqdm
 from frame_loader import FrameLoader
-from constants import BATCH_SIZE, PICKLE_ROOT
+from constants import BATCH_SIZE, PICKLE_ROOT, NUM_NOUNS, NUM_VERBS
 
 import pandas as pd
 import pickle
 
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from models import AttentionModel, WordEmbeddings
 
-from utils import AverageMeter, get_device
+from utils import ActionMeter, AverageMeter, get_device
 
 
 def get_dataloader():
@@ -20,32 +24,39 @@ def get_dataloader():
     return dataloader
 
 if __name__ == '__main__':
-    loader = get_dataloader()
+    loader = get_dataloader(train=True)
     for (v, f, feats) in loader:
         print(feats.shape)
 
 
 class Trainer:
-    def __init__(self, verb_loc, noun_loc, optimizer, loss_fn, train=True, num_epochs = 500) -> None:
-        self.loader = get_dataloader()
-        self.verb_map = self.get_word_map(verb_loc)
-        self.noun_map = self.get_word_map(noun_loc)
+    def __init__(self, verb_loc, noun_loc, optimizer, loss_fn, df_train, num_epochs = 500) -> None:
         self.opt = optimizer
         self.loss_fn = loss_fn
-        self.train = train
+        self.df_train = df_train
         self.num_epochs = num_epochs
+        
+        self.train_loader = get_dataloader()
+        self.val_loader = get_dataloader(train=False)
         self.device = get_device()
         
         self.embedding_model = WordEmbeddings()
-        self.model = AttentionModel(
-                        len(self.verb_map), 
-                        len(self.noun_map),
+        self.attention_model = AttentionModel(
                         self.verb_map,
                         self.noun_map
                     )
         
+        self.verb_map = self.get_word_map(verb_loc)
+        self.noun_map = self.get_word_map(noun_loc)
         self.verb_embeddings = self.get_embeddings('verb')
         self.noun_embeddings = self.get_embeddings('noun')
+        self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
+        self.noun_one_hot = F.one_hot(torch.arange(0, NUM_NOUNS))
+
+        self.train_loss_history = []
+        self.validation_loss_history = []
+        self.train_accuracy_history = []
+        self.validation_accuracy_history = []
 
     def get_embeddings(self, mode):
         if mode == 'verb':
@@ -67,57 +78,77 @@ class Trainer:
         
         return df[['id', 'key']]
     
-    def _train(self, loader, df_train, optimizer, loss_fn, test=False, lr=0.01):
-        train_loss_meter = AverageMeter("train loss")
+    def _train(self, train=True):
+        if train:
+            self.attention_model.train()
+            loader = self.train_loader
+        else:
+            self.attention_model.eval()
+            loader = self.val_loader
+
+        train_loss_meter = ActionMeter("train loss")
         train_acc_meter = AverageMeter("train accuracy")
 
         # loop over each minibatch
         for (video_id, frame_id, feats) in loader:
             feats = feats.to(self.device)
-            verb = df_train[df_train['video_id'] == video_id & df_train['frame_id'] == frame_id]['verb']
-            noun = df_train[df_train['video_id'] == video_id & df_train['frame_id'] == frame_id]['noun']
+            n = feats.shape[0]
+            verb_class = self.df_train[self.df_train['video_id'] == video_id & self.df_train['frame_id'] == frame_id]['verb_class']
+            noun_class = self.df_train[self.df_train['video_id'] == video_id & self.df_train['frame_id'] == frame_id]['noun_class']
 
-            predictions_verb, predictions_noun = self.model(feats, verb, noun)
+            #* assert feats.size() == [b, WORD_EMBEDDING_SIZE]
+            predictions_verb, predictions_noun = self.attention_model(feats, verb_class, noun_class)
 
-            batch_acc = compute_accuracy(logits, y)
-            train_acc_meter.update(val=batch_acc, n=n)
+            batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
+            batch_acc_verb = self.compute_accuracy(predictions_verb, verb_class)
+            train_acc_meter.update(batch_acc_noun, batch_acc_verb, n=n)
 
-            batch_loss = compute_loss(self.model, logits, y, is_normalize=True)
+            batch_loss = self.compute_loss(predictions_verb, self.verb_one_hot[verb_class]) + self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
             train_loss_meter.update(val=float(batch_loss.cpu().item()), n=n)
 
-            optimizer.zero_grad()
-            batch_loss.backward()
-            optimizer.step()
+            if train:
+                self.optimizer.zero_grad()
+                batch_loss.backward()
+                self.optimizer.step()
 
-        return train_loss_meter.avg, train_acc_meter.avg
+        return train_loss_meter.avg, train_acc_meter.avg_verb, train_acc_meter.avg_noun
 
-    #! copy from CV proj 4
-    def compute_accuracy(self):
-        pass
+    def compute_accuracy(self, preds, labels):
+        preds = torch.argmax(preds, dim=1)
+        correct = (preds == labels).float().sum().item()
+        batch_accuracy = correct / len(preds)
 
-    def compute_loss(self):
-        pass
-        
-        
+        return batch_accuracy
 
-    #! Need to rewrite - see example for CV Proj 4
-    def training_loop(loader, optimizer, loss_fn, num_epochs=500, test=False, lr=0.01):
+    def compute_loss(self, preds, labels, is_normalize=False):
+        loss = self.loss_fn(preds, labels)
+        if is_normalize:
+            loss = loss / len(preds)
+
+        return loss
+
+    def training_loop(self, num_epochs=500, train=True):
         """Run the main training loop for the model.
         May need to run separate loops for train/test.
 
         Args:
-            loader (_type_): _description_
-            optimizer (_type_): _description_
-            loss_fn (_type_): _description_
             num_epochs (int, optional): _description_. Defaults to 500.
             test (bool, optional): _description_. Defaults to False.
-            lr (float, optional): _description_. Defaults to 0.01.
         """
-        pass
+        for epoch in tqdm(range(num_epochs)):
+            train_loss, verb_acc, noun_acc = self._train()
 
-    '''
-    f = [b, 384]
-    v = [97, 384]
-    res = [b, 1, 97]
-    '''
+            self.train_loss_history.append(train_loss)
+            self.train_accuracy_history.append((verb_acc, noun_acc))
 
+            val_loss, val_verb_acc, val_noun_acc = self._train(train=False)
+            self.validation_loss_history.append(val_loss)
+            self.validation_accuracy_history.append(val_acc)
+
+            print(
+                f"Epoch:{epoch + 1}"
+                + f" Train Loss:{train_loss:.4f}"
+                + f" Val Loss: {val_loss:.4f}"
+                + f" Train Accuracy (verb/noun): {verb_acc:.4f}/{noun_acc:.4f}"
+                + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
+            )

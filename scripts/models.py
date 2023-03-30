@@ -3,7 +3,7 @@ import torch.nn as nn
 from sentence_transformers import SentenceTransformer
 
 from constants import WORD_EMBEDDING_SIZE
-from utils import AverageMeter, get_device
+from utils import get_device
 
 # Neural Network configs
 device = get_device()
@@ -30,15 +30,16 @@ class WordEmbeddings(nn.Module):
     
 # ATTENTION MODEL
 class AttentionModel(nn.Module):
-    def __init__(self, verb_embeddings, noun_embeddings, C_verb, C_noun, verb_map, noun_map):
+    def __init__(self, verb_embeddings, noun_embeddings, verb_map, noun_map):
         super().__init__()
 
         self.verb_embeddings = verb_embeddings
         self.noun_embeddings = noun_embeddings
-        self.C_verb = C_verb
-        self.C_noun = C_noun
         self.verb_map = verb_map
         self.noun_map = noun_map
+        
+        self.C_verb = len(self.verb_map)
+        self.C_noun = len(self.noun_map)
         self.device = get_device()
 
         self.conv1 = nn.Sequential(
@@ -51,30 +52,52 @@ class AttentionModel(nn.Module):
         self.linear_noun = nn.Linear(WORD_EMBEDDING_SIZE, self.C_noun, bias=True)
         self.softmax = nn.Softmax()
 
-    def _predictions(self, frame_features, mode) -> torch.Tensor:
+    def _predictions(self, frame_features, key, mode) -> torch.Tensor:
+        """_summary_
+
+        ------ Shape logic ------
+        f = [b, D]
+        w1 = [C, D]
+        A = w1 @ f.T = [C, b]
+        Ai = A[verb] = [1, b]
+        F_i = Ai @ f = [b, D]
+        P = W2(F_i).T = [b, C]
+        res = softmax(P) = [b, C]
+        --------------------------
+
+        Args:
+            frame_features (_type_): _description_
+            key (_type_): _description_
+            mode (_type_): _description_
+
+        Raises:
+            Exception: _description_
+
+        Returns:
+            torch.Tensor: _description_
+        """
         if mode == 'verb':
             embeddings = self.verb_embeddings
-            word_map = self.verb_map
             linear_layer = self.linear_verb
         elif mode == 'noun':
             embeddings = self.noun_embeddings
-            word_map = self.noun_map
             linear_layer = self.linear_noun
         else:
             raise Exception('Invalid mode: choose either "noun" or "verb"')        
         
         # attention = torch.sigmoid(torch.sum(embeddings * frame_features.T, dim=-1)) # hacky way to do rowwise dot product. Link: https://stackoverflow.com/questions/61875963/pytorch-row-wise-dot-product
-        attention = torch.sigmoid(torch.matmul(frame_features, embeddings.T))
-        weighted_features = (attention * frame_features)/torch.sum(attention, dim=-1)
+        attention = torch.sigmoid(torch.matmul(embeddings, frame_features.T)) # shape: [C, b]
+        aware = attention[key]
+        weighted_features = torch.matmul(aware, frame_features)/torch.sum(aware, dim=-1) 
         predictions = linear_layer(weighted_features).T
         predictions = self.softmax(predictions).cpu()
 
-        return word_map[word_map.id == torch.argmax(predictions)]
+        return predictions
     
-    def forward(self, x: torch.Tensor, verb, noun):
+    def forward(self, x: torch.Tensor, verb_class, noun_class):
         x = x.to(self.device)
         frame_features = self.conv1(x)
-        verb_predictions = self._predictions(frame_features, 'verb')
-        noun_predictions = self._predictions(frame_features, 'noun')
+        verb_predictions = self._predictions(frame_features, verb_class, 'verb')
+        noun_predictions = self._predictions(frame_features, noun_class, 'noun')
 
         return verb_predictions, noun_predictions

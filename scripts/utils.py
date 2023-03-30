@@ -59,3 +59,30 @@ class AverageMeter(object):
     def __str__(self):
         fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
         return fmtstr.format(**self.__dict__)
+
+class ActionMeter():
+    def __init__(self, name: str, fmt: str = ":f") -> None:
+        self.name = name
+        self.noun_meter = AverageMeter(name, fmt)
+        self.verb_meter = AverageMeter(name, fmt)
+        self.fmt = fmt
+        self.reset()
+
+    def reset(self) -> None:
+        self.val_noun = self.val_verb = 0
+        self.avg_noun = self.avg_verb = 0
+        self.sum_noun = self.sum_verb = 0
+        self.count = 0
+
+    def update(self, val_noun: float, val_verb: float, n: int = 1):
+        self.val_noun = val_noun
+        self.val_verb = val_verb
+        self.sum_noun += val_noun * n
+        self.sum_verb += val_verb * n
+        self.count += n
+        self.avg_noun = self.sum_noun / self.count
+        self.avg_verb = self.sum_verb / self.count
+
+    def __str__(self):
+        fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
+        return fmtstr.format(**self.__dict__)
