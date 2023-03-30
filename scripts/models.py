@@ -35,7 +35,7 @@ class AttentionModel(nn.Module):
         self.device = get_device()
 
         self.layer1 = nn.Sequential(
-            nn.Conv1d(1, 100, 5),
+            nn.Conv1d(in_channels=1, out_channels=100, kernel_size=3),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(4094, WORD_EMBEDDING_SIZE)
@@ -96,6 +96,7 @@ class AttentionModel(nn.Module):
     
     def forward(self, x: torch.Tensor, verb_class, noun_class):
         x = x[:, None, :]
+        print(f'x.shape = {x.size()}')
         frame_features = self.layer1(x)
         verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
         noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
