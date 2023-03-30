@@ -187,7 +187,7 @@ if __name__ == '__main__':
     model = WordEmbeddings()
     x = model(['the tap water is cold'])
     print(x)
-    print(x.type)
+    print(type(x))
     print(torch.get_device(x))
 
     # loader = get_dataloader()
