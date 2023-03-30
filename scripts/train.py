@@ -100,6 +100,7 @@ class Trainer(object):
         Returns:
             (float, float, float): average loss and accuracy
         """
+        self.attention_model.to(self.device)
         if train:
             self.attention_model.train()
             loader = self.train_loader
@@ -112,7 +113,7 @@ class Trainer(object):
 
         # loop over each minibatch
         for (feats, verb_class, noun_class) in tqdm(loader):
-            feats = feats.to(self.device)
+            feats.to(self.device)
             n = feats.shape[0] # batch_size
 
             predictions_verb, predictions_noun = self.attention_model(feats, verb_class, noun_class)
