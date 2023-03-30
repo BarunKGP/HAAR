@@ -63,7 +63,8 @@ class AttentionModel(nn.Module):
         else:
             raise Exception('Invalid mode: choose either "noun" or "verb"')        
         
-        attention = torch.sigmoid(torch.sum(embeddings * frame_features.T, dim=-1)) # hacky way to do rowwise dot product. Link: https://stackoverflow.com/questions/61875963/pytorch-row-wise-dot-product
+        # attention = torch.sigmoid(torch.sum(embeddings * frame_features.T, dim=-1)) # hacky way to do rowwise dot product. Link: https://stackoverflow.com/questions/61875963/pytorch-row-wise-dot-product
+        attention = torch.sigmoid(torch.matmul(frame_features, embeddings.T))
         weighted_features = (attention * frame_features)/torch.sum(attention, dim=-1)
         predictions = linear_layer(weighted_features).T
         predictions = self.softmax(predictions).cpu()

@@ -13,7 +13,7 @@ from utils import AverageMeter, get_device
 
 def get_dataloader():
     dataset = FrameLoader(
-        loc = os.path.join(PICKLE_ROOT, 'samples/df_train100.pkl'),
+        loc = os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'),
         info_loc= os.path.join(PICKLE_ROOT, 'video_info.pkl')
         )
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
@@ -116,8 +116,8 @@ class Trainer:
         pass
 
     '''
-    f = [b, L, 384]
+    f = [b, 384]
     v = [97, 384]
-    res = [b, L, 97]
+    res = [b, 1, 97]
     '''
 
