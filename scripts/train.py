@@ -28,10 +28,9 @@ def get_dataloader(train=True):
 
 def get_word_map(file_loc):
     try:
-        with open(file_loc, 'rb') as handle:
-            df = pickle.load(handle)
+        df = pd.read_csv(file_loc)
     except:
-        raise FileNotFoundError(f'Invalid pickle location: {file_loc}')
+        raise FileNotFoundError(f'Invalid file location: {file_loc}')
     
     return df[['id', 'key']]
 
