@@ -16,7 +16,7 @@ class WordEmbeddings(nn.Module):
         self.device = get_device()
 
     def forward(self, text):
-        embedding = self.model.encode(text)
+        embedding = torch.tensor(self.model.encode(text))
         return embedding
 
     
@@ -85,6 +85,7 @@ class AttentionModel(nn.Module):
         else:
             raise Exception('Invalid mode: choose either "noun" or "verb"')        
         
+        embeddings = embeddings.repeat(frame_features.shape[0], 1, 1)
         # attention = torch.sigmoid(torch.sum(embeddings * frame_features.T, dim=-1)) # hacky way to do rowwise dot product. Link: https://stackoverflow.com/questions/61875963/pytorch-row-wise-dot-product
         attention = torch.sigmoid(torch.matmul(embeddings, frame_features)) # shape: [b, C, 100]
         aware = attention[:, key:, ]
