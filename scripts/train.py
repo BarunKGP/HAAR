@@ -133,6 +133,7 @@ class Trainer(object):
         return train_loss_meter.avg, train_acc_meter.avg_verb, train_acc_meter.avg_noun
 
     def compute_accuracy(self, preds, labels):
+        print(preds.shape, labels.shape)
         preds = torch.argmax(preds, dim=1)
         correct = (preds == labels).float().sum().item()
         batch_accuracy = correct / len(preds)

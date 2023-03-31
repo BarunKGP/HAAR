@@ -88,18 +88,18 @@ class AttentionModel(nn.Module):
         # embeddings = embeddings.repeat(frame_features.shape[0], 1, 1)
         if embeddings.ndim == 1:
             embeddings = embeddings[:, None] # Convert to shape [b, K]
-        print(f'embeddings: {embeddings.size()}')
+        # print(f'embeddings: {embeddings.size()}')
         # attention = torch.sigmoid(torch.sum(embeddings * frame_features.T, dim=-1)) # hacky way to do rowwise dot product. Link: https://stackoverflow.com/questions/61875963/pytorch-row-wise-dot-product
         attention = torch.matmul(embeddings, frame_features)
         attention = torch.sigmoid(attention) # shape: [b, C, 100]
-        print(f'attention: {attention.size()}')
+        # print(f'attention: {attention.size()}')
         # aware = torch.index_select(attention, 1, key.to(self.device))
         aware = vector_gather(attention, key)
         aware = aware[:, None, :]
         print(f'aware: {aware.size()}')
         weighted_features = torch.matmul(aware, frame_features.permute(0, 2, 1))/torch.sum(aware, dim=-1) 
         predictions = linear_layer(weighted_features)
-        predictions = self.softmax(predictions)
+        predictions = self.softmax(predictions, dim=-1)
 
         return predictions
     
@@ -109,9 +109,8 @@ class AttentionModel(nn.Module):
         # self.layer1 = self.layer1.to(x.device)
         # print(x.device)
         # print(self.layer1.device)
-        print(f'verb_class = {verb_class.size()}, noun_class = {noun_class}')
         frame_features = self.layer1(x).permute((0, 2, 1))
-        print(f'frame_features: {frame_features.size()}')
+        # print(f'frame_features: {frame_features.size()}')
         verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
         noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
 
