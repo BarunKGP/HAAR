@@ -3,7 +3,7 @@ import torch.nn as nn
 from sentence_transformers import SentenceTransformer
 
 from constants import WORD_EMBEDDING_SIZE
-from utils import get_device
+from utils import get_device, vector_gather
 
 # Neural Network configs
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device=get_device())
@@ -85,13 +85,14 @@ class AttentionModel(nn.Module):
         else:
             raise Exception('Invalid mode: choose either "noun" or "verb"')        
         
-        embeddings = embeddings.repeat(frame_features.shape[0], 1, 1)
+        # embeddings = embeddings.repeat(frame_features.shape[0], 1, 1)
         print(f'embeddings: {embeddings.size()}')
         # attention = torch.sigmoid(torch.sum(embeddings * frame_features.T, dim=-1)) # hacky way to do rowwise dot product. Link: https://stackoverflow.com/questions/61875963/pytorch-row-wise-dot-product
         attention = torch.matmul(embeddings, frame_features)
         attention = torch.sigmoid(attention) # shape: [b, C, 100]
         print(f'attention: {attention.size()}')
-        aware = torch.index_select(attention, 1, key.to(self.device))
+        # aware = torch.index_select(attention, 1, key.to(self.device))
+        aware = vector_gather(attention, key)
         # aware = aware[:, None, :]
         print(f'aware: {aware.size()}')
         weighted_features = torch.matmul(aware, frame_features.permute(0, 2, 1))/torch.sum(aware, dim=-1) 
