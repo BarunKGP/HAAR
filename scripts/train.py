@@ -72,7 +72,7 @@ class Trainer(object):
             raise Exception('Invalid mode: choose either "noun" or "verb"')   
         
         embeddings = self.embedding_model(text)
-        return torch.from_numpy(embeddings)
+        return embeddings
 
     def get_model(self):
         return self.attention_model

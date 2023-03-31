@@ -17,7 +17,7 @@ class WordEmbeddings(nn.Module):
 
     def forward(self, text):
         embedding = torch.tensor(self.model.encode(text))
-        return embedding
+        return torch.from_numpy(embeddings)
 
     
 # ATTENTION MODEL
