@@ -95,9 +95,10 @@ class AttentionModel(nn.Module):
         # print(f'attention: {attention.size()}')
         # aware = torch.index_select(attention, 1, key.to(self.device))
         aware = vector_gather(attention, key)
-        aware = aware[:, None]
+        aware = aware[:, None, :]
         print(f'aware: {aware.size()}')
         weighted_features = torch.bmm(frame_features, aware)/torch.sum(aware, dim=-1) 
+        weighted_features - weighted_features.permute((0, 2, 1))
         print(f' weighted_features: {weighted_features.size()}')
         predictions = linear_layer(weighted_features)
         predictions = self.softmax(predictions)
@@ -113,6 +114,7 @@ class AttentionModel(nn.Module):
         # print(self.layer1.device)
         frame_features = self.layer1(x).permute((0, 2, 1))
         print(f'frame_features: {frame_features.size()}')
+        print(f'self.verb_embeddings: {self.verb_embeddings.size()}')
         verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
         # noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
 
