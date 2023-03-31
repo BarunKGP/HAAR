@@ -98,7 +98,7 @@ class AttentionModel(nn.Module):
         x = x[:, None, :]
         print(f'x.shape = {x.size()}')
         self.layer1 = self.layer1.to(x.device)
-        print(self.x.device)
+        print(x.device)
         print(self.layer1.device)
         frame_features = self.layer1(x)
         verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
