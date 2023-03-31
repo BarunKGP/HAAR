@@ -113,7 +113,7 @@ class Trainer(object):
 
         # loop over each minibatch
         for (feats, verb_class, noun_class) in tqdm(loader):
-            feats.to(self.device)
+            feats = feats.to(self.device)
             print(f'device = {self.device}')
             print(f'feats on device = {feats.device}')
             n = feats.shape[0] # batch_size
