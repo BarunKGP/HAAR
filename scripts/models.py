@@ -98,8 +98,10 @@ class AttentionModel(nn.Module):
         aware = aware[:, None, :]
         print(f'aware: {aware.size()}')
         weighted_features = torch.matmul(aware, frame_features.permute(0, 2, 1))/torch.sum(aware, dim=-1) 
+        print(f' weighted_features: {weighted_features.size()}')
         predictions = linear_layer(weighted_features)
         predictions = self.softmax(predictions)
+        print(f' predictions: {predictions.size()}')
 
         return predictions
     
@@ -112,6 +114,6 @@ class AttentionModel(nn.Module):
         frame_features = self.layer1(x).permute((0, 2, 1))
         # print(f'frame_features: {frame_features.size()}')
         verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
-        noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
+        # noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
 
-        return verb_predictions, noun_predictions
+        return verb_predictions#, noun_predictions

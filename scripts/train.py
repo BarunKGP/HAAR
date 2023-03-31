@@ -115,14 +115,14 @@ class Trainer(object):
             feats = feats.to(self.device)
             n = feats.shape[0] # batch_size
 
-            predictions_verb, predictions_noun = self.attention_model(feats, verb_class, noun_class)
+            predictions_verb = self.attention_model(feats, verb_class, noun_class)
 
-            batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
+            # batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
             batch_acc_verb = self.compute_accuracy(predictions_verb, verb_class)
-            train_acc_meter.update(batch_acc_noun, batch_acc_verb, n=n)
+            # train_acc_meter.update(batch_acc_noun, batch_acc_verb, n=n)
 
             # Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
-            batch_loss = self.compute_loss(predictions_verb, self.verb_one_hot[verb_class]) + self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
+            batch_loss = self.compute_loss(predictions_verb, self.verb_one_hot[verb_class]) #+ self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
             train_loss_meter.update(val=float(batch_loss.cpu().item()), n=n)
 
             if train:
@@ -160,8 +160,8 @@ class Trainer(object):
         for epoch in tqdm(range(num_epochs)):
             train_loss, verb_acc, noun_acc = self._train()
 
-            self.train_loss_history.append(train_loss)
-            self.train_accuracy_history.append((verb_acc, noun_acc))
+            # self.train_loss_history.append(train_loss)
+            # self.train_accuracy_history.append((verb_acc, noun_acc))
 
             # val_loss, val_verb_acc, val_noun_acc = self._train(train=False)
             # self.validation_loss_history.append(val_loss)
@@ -171,7 +171,7 @@ class Trainer(object):
                 f"Epoch:{epoch + 1}"
                 + f" Train Loss:{train_loss:.4f}"
                 # + f" Val Loss: {val_loss:.4f}"
-                + f" Train Accuracy (verb/noun): {verb_acc:.4f}/{noun_acc:.4f}"
+                + f" Train Accuracy (verb/noun): {verb_acc:.4f}"#/{noun_acc:.4f}"
                 # + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
             )
 
