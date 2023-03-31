@@ -16,7 +16,7 @@ class WordEmbeddings(nn.Module):
         self.device = get_device()
 
     def forward(self, text):
-        embeddings = torch.tensor(self.model.encode(text))
+        embeddings = self.model.encode(text)
         return torch.from_numpy(embeddings)
 
     
