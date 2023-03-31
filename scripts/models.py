@@ -95,10 +95,10 @@ class AttentionModel(nn.Module):
         return predictions
     
     def forward(self, x: torch.Tensor, verb_class, noun_class):
-        x = x[:, None, :]
+        x = x[:, None, :].to(torch.float32)
         # print(f'x.shape = {x.size()}')
         # self.layer1 = self.layer1.to(x.device)
-        print(x.device)
+        # print(x.device)
         # print(self.layer1.device)
         frame_features = self.layer1(x)
         verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
