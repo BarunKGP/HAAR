@@ -91,7 +91,7 @@ class AttentionModel(nn.Module):
         attention = torch.matmul(embeddings, frame_features)
         attention = torch.sigmoid(attention) # shape: [b, C, 100]
         aware = attention[:, key, :]
-        aware = attention[:, None, :]
+        aware = aware[:, None, :]
         print(f'aware: {aware.size()}')
         weighted_features = torch.matmul(aware, frame_features.permute(0, 2, 1))/torch.sum(aware, dim=-1) 
         predictions = linear_layer(weighted_features)
