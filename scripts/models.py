@@ -89,9 +89,9 @@ class AttentionModel(nn.Module):
         print(f'embeddings: {embeddings.size()}')
         # attention = torch.sigmoid(torch.sum(embeddings * frame_features.T, dim=-1)) # hacky way to do rowwise dot product. Link: https://stackoverflow.com/questions/61875963/pytorch-row-wise-dot-product
         attention = torch.matmul(embeddings, frame_features)
-        print(f'attention: {attention.size()}')
         attention = torch.sigmoid(attention) # shape: [b, C, 100]
         aware = attention[:, key, :]
+        print(f'aware: {aware.size()}')
         weighted_features = torch.matmul(aware, frame_features.permute(0, 2, 1))/torch.sum(aware, dim=-1) 
         predictions = linear_layer(weighted_features)
         predictions = self.softmax(predictions)
