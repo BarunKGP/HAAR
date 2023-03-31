@@ -45,6 +45,8 @@ def vector_gather(vectors, indices):
     Returns:
         Tensor[N, K, D] or Tensor[N, D]
     """
+    if vectors.device != indices.device:
+        indices = indices.to(vectors.device)
     N, L, D = vectors.shape
     squeeze = False
     if indices.ndim == 1:
