@@ -42,7 +42,7 @@ class AttentionModel(nn.Module):
         )
         self.linear_verb = nn.Linear(WORD_EMBEDDING_SIZE, self.C_verb, bias=True)
         self.linear_noun = nn.Linear(WORD_EMBEDDING_SIZE, self.C_noun, bias=True)
-        self.softmax = nn.Softmax()
+        self.softmax = nn.Softmax(dim=-1)
 
     def _predictions(self, frame_features, key, mode) -> torch.Tensor:
         """_summary_
@@ -99,7 +99,7 @@ class AttentionModel(nn.Module):
         print(f'aware: {aware.size()}')
         weighted_features = torch.matmul(aware, frame_features.permute(0, 2, 1))/torch.sum(aware, dim=-1) 
         predictions = linear_layer(weighted_features)
-        predictions = self.softmax(predictions, dim=-1)
+        predictions = self.softmax(predictions)
 
         return predictions
     
