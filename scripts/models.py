@@ -86,6 +86,8 @@ class AttentionModel(nn.Module):
             raise Exception('Invalid mode: choose either "noun" or "verb"')        
         
         # embeddings = embeddings.repeat(frame_features.shape[0], 1, 1)
+        if embeddings.ndim == 1:
+            embeddings = embeddings[:, None] # Convert to shape [b, K]
         print(f'embeddings: {embeddings.size()}')
         # attention = torch.sigmoid(torch.sum(embeddings * frame_features.T, dim=-1)) # hacky way to do rowwise dot product. Link: https://stackoverflow.com/questions/61875963/pytorch-row-wise-dot-product
         attention = torch.matmul(embeddings, frame_features)
