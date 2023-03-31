@@ -91,7 +91,7 @@ class AttentionModel(nn.Module):
         attention = torch.matmul(embeddings, frame_features)
         attention = torch.sigmoid(attention) # shape: [b, C, 100]
         print(f'attention: {attention.size()}')
-        aware = torch.index_select(attention, 1, torch.tensor(key).to(self.device))
+        aware = torch.index_select(attention, 1, key.to(self.device))
         # aware = aware[:, None, :]
         print(f'aware: {aware.size()}')
         weighted_features = torch.matmul(aware, frame_features.permute(0, 2, 1))/torch.sum(aware, dim=-1) 
@@ -106,7 +106,7 @@ class AttentionModel(nn.Module):
         # self.layer1 = self.layer1.to(x.device)
         # print(x.device)
         # print(self.layer1.device)
-        print(f'verb_class = {verb_class}, noun_class = {noun_class}')
+        print(f'verb_class = {verb_class.size()}, noun_class = {noun_class}')
         frame_features = self.layer1(x).permute((0, 2, 1))
         print(f'frame_features: {frame_features.size()}')
         verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
