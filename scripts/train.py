@@ -190,7 +190,7 @@ class Trainer(object):
 
 if __name__ == '__main__':
     loader = get_dataloader()
-    print(f'Obtained dataloader: length = {len(loader)}')
+    # print(f'Obtained dataloader: length = {len(loader)}')
     # for (v, f, feats) in loader:
     #     print(feats.shape)
     

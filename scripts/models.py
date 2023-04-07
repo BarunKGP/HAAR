@@ -95,9 +95,9 @@ class AttentionModel(nn.Module):
         # print(f'attention: {attention.size()}')
         # aware = torch.index_select(attention, 1, key.to(self.device))
         aware = vector_gather(attention, key)
-        aware = aware[:, None, :]
+        # aware = aware[:, None, :]
         print(f'aware: {aware.size()}')
-        weighted_features = torch.einsum('ijk, ilk -> ilj', frame_features, aware)
+        weighted_features = torch.einsum('ijk, ik -> ij', frame_features, aware)
         weighted_features = weighted_features / torch.sum(aware, dim=-1) 
         # weighted_features = torch.matmul(aware, frame_features.permute((0, 2, 1)))/torch.sum(aware, dim=-1) 
         # weighted_features - weighted_features.permute((0, 2, 1))
