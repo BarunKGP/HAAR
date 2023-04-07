@@ -98,10 +98,10 @@ class AttentionModel(nn.Module):
         # aware = aware[:, None, :]
         print(f'aware: {aware.size()}')
         weighted_features = torch.einsum('ijk, ik -> ij', frame_features, aware)
+        print(f' weighted_features: {weighted_features.size()}')
         weighted_features = weighted_features / torch.sum(aware, dim=-1) 
         # weighted_features = torch.matmul(aware, frame_features.permute((0, 2, 1)))/torch.sum(aware, dim=-1) 
         # weighted_features - weighted_features.permute((0, 2, 1))
-        print(f' weighted_features: {weighted_features.size()}')
         predictions = linear_layer(weighted_features)
         predictions = self.softmax(predictions)
         print(f' predictions: {predictions.size()}')
