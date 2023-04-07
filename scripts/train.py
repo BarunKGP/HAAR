@@ -125,7 +125,9 @@ class Trainer(object):
 
             # Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
             batch_loss = self.compute_loss(predictions_verb, verb_class) #+ self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
+            print(f'batch loss = {batch_loss}')
             train_loss_meter.update(float(batch_loss.cpu().item()), n=n)
+            # batch_loss = Variable(batch_loss, requires_grad=True)
 
             if train:
                 self.attention_model.zero_grad(set_to_none=True)
