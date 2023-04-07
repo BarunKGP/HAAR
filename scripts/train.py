@@ -122,7 +122,7 @@ class Trainer(object):
             # train_acc_meter.update(batch_acc_noun, batch_acc_verb, n=n)
 
             # Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
-            batch_loss = self.compute_loss(predictions_verb, self.verb_one_hot[verb_class]) #+ self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
+            batch_loss = self.compute_loss(predictions_verb, verb_class) #+ self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
             train_loss_meter.update(val=float(batch_loss.cpu().item()), n=n)
 
             if train:
