@@ -106,8 +106,9 @@ class Trainer(object):
         else:
             self.attention_model.eval()
             loader = self.val_loader
-
-        train_loss_meter = ActionMeter("train loss")
+        
+        #! Both of these should be ActionMeter
+        train_loss_meter = AverageMeter("train loss") 
         train_acc_meter = AverageMeter("train accuracy")
 
         # loop over each minibatch
@@ -120,18 +121,19 @@ class Trainer(object):
             # batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
             batch_acc_verb = self.compute_accuracy(predictions_verb, verb_class)
             # train_acc_meter.update(batch_acc_noun, batch_acc_verb, n=n)
+            train_acc_meter.update(batch_acc_verb, n)
 
             # Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
             batch_loss = self.compute_loss(predictions_verb, verb_class) #+ self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
-            train_loss_meter.update(val_verb=float(batch_loss.cpu().item()), val_noun=0.0, n=n)
+            train_loss_meter.update(float(batch_loss.cpu().item()), n=n)
 
             if train:
                 self.attention_model.zero_grad(set_to_none=True)
                 batch_loss.backward()
                 self.opt.step()
 
-        return train_loss_meter.avg, train_acc_meter.avg_verb, train_acc_meter.avg_noun
-
+        return train_loss_meter.avg, train_acc_meter.avg
+    
     def compute_accuracy(self, preds, labels):
         print(preds.shape, labels.shape)
         preds = torch.argmax(preds, dim=1)
@@ -158,7 +160,7 @@ class Trainer(object):
         """
         self.attention_model.to(self.device)
         for epoch in tqdm(range(num_epochs)):
-            train_loss, verb_acc, noun_acc = self._train()
+            train_loss, verb_acc = self._train()
 
             # self.train_loss_history.append(train_loss)
             # self.train_accuracy_history.append((verb_acc, noun_acc))
