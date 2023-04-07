@@ -198,5 +198,5 @@ if __name__ == '__main__':
     # for (v, f, feats) in loader:
     #     print(feats.shape)
     
-    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss())
+    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss(reduction='none'))
     trainer.training_loop(num_epochs=1)
