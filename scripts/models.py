@@ -97,7 +97,9 @@ class AttentionModel(nn.Module):
         aware = vector_gather(attention, key)
         aware = aware[:, None, :]
         print(f'aware: {aware.size()}')
-        weighted_features = torch.matmul(aware, frame_features.permute((0, 2, 1)))/torch.sum(aware, dim=-1) 
+        weighted_features = torch.einsum('ijk, ilk -> ilj', frame_features, aware)
+        weighted_features = weighted_features / torch.sum(aware, dim=-1) 
+        # weighted_features = torch.matmul(aware, frame_features.permute((0, 2, 1)))/torch.sum(aware, dim=-1) 
         # weighted_features - weighted_features.permute((0, 2, 1))
         print(f' weighted_features: {weighted_features.size()}')
         predictions = linear_layer(weighted_features)
