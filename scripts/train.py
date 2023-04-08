@@ -132,7 +132,7 @@ class Trainer(object):
             # batch_loss = Variable(batch_loss, requires_grad=True)
 
             if train:
-                self.attention_model.zero_grad()
+                # self.attention_model.zero_grad()
                 batch_loss.backward()
                 self.opt.step()
 
