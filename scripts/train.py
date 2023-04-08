@@ -128,8 +128,8 @@ class Trainer(object):
             batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
             batch_loss = batch_loss_noun + batch_loss_verb
 
-            print(f'batch_loss_verb = {batch_loss_verb}, grad_fn = {batch_loss_verb.grad_fn} \n'
-                  + f'batch_acc_verb = {batch_acc_verb}, grad_fn = {batch_acc_verb.grad_fn}')
+            print(f'batch_loss_verb = {batch_loss_verb} \n'
+                  + f'batch_acc_verb = {batch_acc_verb}')
             train_acc_meter.update(batch_acc_verb.item(), batch_acc_noun.item(), n)
             train_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
 
