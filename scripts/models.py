@@ -88,27 +88,20 @@ class AttentionModel(nn.Module):
         if embeddings.ndim == 1:
             embeddings = embeddings[:, None] # Convert to shape [b, K]
         
-        attention = torch.matmul(embeddings, frame_features)
-        attention = torch.sigmoid(attention) # shape: [b, C, 100]
-        aware = vector_gather(attention, key)
-        # aware = aware[:, None, :]
-        # print(f'aware: {aware.size()}')
-        weighted_features = torch.einsum('ijk, ik -> ij', frame_features, aware)
-        # print(f' weighted_features: {weighted_features.size()}')
-        weighted_features = torch.div(weighted_features, torch.sum(aware, dim=-1).reshape((-1, 1))) 
-        predictions = linear_layer(weighted_features)
-        predictions = self.softmax(predictions)
-        print(f' predictions: {predictions.size()}')
+        A = torch.matmul(embeddings, frame_features)
+        A = torch.sigmoid(A) # shape: [b, C, 100]
+        A = vector_gather(A, key)
+        y = torch.einsum('ijk, ik -> ij', frame_features, A)
+        y = torch.div(y, torch.sum(A, dim=-1).reshape((-1, 1))) 
+        y = linear_layer(y)
+        y = self.softmax(y)
 
-        return predictions
+        return y
     
     def forward(self, x: torch.Tensor, verb_class, noun_class):
         x = x[:, None, :].to(torch.float32)
-        frame_features = self.layer1(x).permute((0, 2, 1))
-        print(f'frame_features: {frame_features.size()}')
-        print(f'self.verb_embeddings: {self.verb_embeddings.size()}')
-        print(f'gradient functions for frame_features and x = {frame_features.grad_fn}, {x.grad_fn}')
-        verb_predictions = self._predictions(frame_features, verb_class, 'verb')
-        # noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
+        x = self.layer1(x).permute((0, 2, 1))
+        verb_predictions = self._predictions(x, verb_class, 'verb')
+        # noun_predictions = self._predictions(x, noun_class, 'noun')
 
         return verb_predictions#, noun_predictions
