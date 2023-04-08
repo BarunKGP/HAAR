@@ -195,7 +195,7 @@ class Trainer(object):
             else:
                 self.save_model(model_save_path)
 
-        self.attention_model.detach().cpu()
+        # self.attention_model.detach().cpu()
 
 if __name__ == '__main__':
     loader = get_dataloader()
