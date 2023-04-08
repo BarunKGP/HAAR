@@ -117,6 +117,7 @@ class AttentionModel(nn.Module):
         frame_features = self.layer1(x).permute((0, 2, 1))
         print(f'frame_features: {frame_features.size()}')
         print(f'self.verb_embeddings: {self.verb_embeddings.size()}')
+        print(f'gradient functions for frame_features and verb_embeddings = {frame_features.grad_fn}, {self.verb_embeddings.grad_fn}')
         verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
         # noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
 
