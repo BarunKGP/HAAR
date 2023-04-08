@@ -126,13 +126,15 @@ class Trainer(object):
             # Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
             batch_loss = self.compute_loss(predictions_verb, verb_class) #+ self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
             print(f'batch loss = {batch_loss}')
-            train_loss_meter.update(float(batch_loss.cpu().item()), n=n)
+            # train_loss_meter.update(float(batch_loss.cpu().item()), n=n)
             # batch_loss = Variable(batch_loss, requires_grad=True)
 
             if train:
                 self.attention_model.zero_grad(set_to_none=True)
                 batch_loss.backward()
                 self.opt.step()
+
+            return batch_loss, batch_acc_verb
 
         return train_loss_meter.avg, train_acc_meter.avg
     
@@ -173,9 +175,9 @@ class Trainer(object):
 
             print(
                 f"Epoch:{epoch + 1}"
-                + f" Train Loss:{train_loss:.4f}"
+                + f" Train Loss:{train_loss}"
                 # + f" Val Loss: {val_loss:.4f}"
-                + f" Train Accuracy (verb/noun): {verb_acc:.4f}"#/{noun_acc:.4f}"
+                + f" Train Accuracy (verb/noun): {verb_acc}"#/{noun_acc:.4f}"
                 # + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
             )
 
