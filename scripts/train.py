@@ -115,6 +115,8 @@ class Trainer(object):
         # loop over each minibatch
         for (feats, verb_class, noun_class) in tqdm(loader):
             feats = feats.to(self.device)
+            verb_class = verb_class.to(self.device)
+            noun_class = noun_class.to(self.device)
             n = feats.shape[0] # batch_size
 
             predictions_verb = self.attention_model(feats, verb_class, noun_class)
@@ -141,7 +143,6 @@ class Trainer(object):
         return train_loss_meter.avg, train_acc_meter.avg
     
     def compute_accuracy(self, preds, labels):
-        print(preds.shape, labels.shape)
         preds = torch.argmax(preds, dim=1)
         correct = (preds == labels).float().sum().item()
         batch_accuracy = correct / len(preds)
