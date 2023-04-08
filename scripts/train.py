@@ -184,10 +184,10 @@ class Trainer(object):
                 # + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
             )
 
-            print('GPU usage:')
-            print(torch.cuda.list_gpu_processes())
-            gc.collect()
-            torch.cuda.empty_cache()
+            # print('GPU usage:')
+            # print(torch.cuda.list_gpu_processes())
+            # gc.collect()
+            # torch.cuda.empty_cache()
         
         if save_model:
             if model_save_path is None:
