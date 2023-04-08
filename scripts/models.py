@@ -48,14 +48,6 @@ class AttentionModel(nn.Module):
         """_summary_
 
         ------ Shape logic ------
-        f = [b, 100, D]
-        w1 = [b, C, D]
-        A = f @ w1 = [b, 100, C]
-        Ai = A.T[verb] = [100, b]
-        F_i = Ai.permute(0, 2, 1) @ f = [b, D, b]
-        P = W2(F_i).T = [b, C]
-        res = softmax(P) = [b, C]
-        --------------------------
         f = [b, D, 100]
         w1 = [b, C, D]
         A = w1@f = [b, C, 100]
