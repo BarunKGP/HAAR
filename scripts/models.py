@@ -85,41 +85,30 @@ class AttentionModel(nn.Module):
         else:
             raise Exception('Invalid mode: choose either "noun" or "verb"')        
         
-        # embeddings = embeddings.repeat(frame_features.shape[0], 1, 1)
         if embeddings.ndim == 1:
             embeddings = embeddings[:, None] # Convert to shape [b, K]
-        # print(f'embeddings: {embeddings.size()}')
-        # attention = torch.sigmoid(torch.sum(embeddings * frame_features.T, dim=-1)) # hacky way to do rowwise dot product. Link: https://stackoverflow.com/questions/61875963/pytorch-row-wise-dot-product
+        
         attention = torch.matmul(embeddings, frame_features)
         attention = torch.sigmoid(attention) # shape: [b, C, 100]
-        # print(f'attention: {attention.size()}')
-        # aware = torch.index_select(attention, 1, key.to(self.device))
         aware = vector_gather(attention, key)
         # aware = aware[:, None, :]
-        print(f'aware: {aware.size()}')
+        # print(f'aware: {aware.size()}')
         weighted_features = torch.einsum('ijk, ik -> ij', frame_features, aware)
-        print(f' weighted_features: {weighted_features.size()}')
+        # print(f' weighted_features: {weighted_features.size()}')
         weighted_features = torch.div(weighted_features, torch.sum(aware, dim=-1).reshape((-1, 1))) 
-        # weighted_features = torch.matmul(aware, frame_features.permute((0, 2, 1)))/torch.sum(aware, dim=-1) 
-        # weighted_features - weighted_features.permute((0, 2, 1))
         predictions = linear_layer(weighted_features)
         predictions = self.softmax(predictions)
         print(f' predictions: {predictions.size()}')
-        print(f'grad_fn = {predictions.grad_fn}')
 
         return predictions
     
     def forward(self, x: torch.Tensor, verb_class, noun_class):
         x = x[:, None, :].to(torch.float32)
-        # print(f'x.shape = {x.size()}')
-        # self.layer1 = self.layer1.to(x.device)
-        # print(x.device)
-        # print(self.layer1.device)
         frame_features = self.layer1(x).permute((0, 2, 1))
         print(f'frame_features: {frame_features.size()}')
         print(f'self.verb_embeddings: {self.verb_embeddings.size()}')
-        print(f'gradient functions for frame_features and verb_embeddings = {frame_features.grad_fn}, {self.verb_embeddings.grad_fn}')
-        verb_predictions = self._predictions(frame_features, verb_class, 'verb').detach().cpu()
+        print(f'gradient functions for frame_features and x = {frame_features.grad_fn}, {x.grad_fn}')
+        verb_predictions = self._predictions(frame_features, verb_class, 'verb')
         # noun_predictions = self._predictions(frame_features, noun_class, 'noun').detach().cpu()
 
         return verb_predictions#, noun_predictions
