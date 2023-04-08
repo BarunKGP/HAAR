@@ -105,6 +105,7 @@ class AttentionModel(nn.Module):
         predictions = linear_layer(weighted_features)
         predictions = self.softmax(predictions)
         print(f' predictions: {predictions.size()}')
+        print(f'grad_fn = {predictions.grad_fn}')
 
         return predictions
     
