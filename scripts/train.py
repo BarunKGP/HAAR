@@ -9,6 +9,7 @@ from constants import BATCH_SIZE, PICKLE_ROOT, NUM_NOUNS, NUM_VERBS, VERB_CLASSE
 import pandas as pd
 
 from torch.utils.data import DataLoader
+from torch.autograd import Variable
 import torch.nn.functional as F
 import torch.nn as nn
 from models import AttentionModel, WordEmbeddings
@@ -127,10 +128,10 @@ class Trainer(object):
             batch_loss = self.compute_loss(predictions_verb, verb_class) #+ self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
             print(f'batch loss = {batch_loss}')
             # train_loss_meter.update(float(batch_loss.cpu().item()), n=n)
-            # batch_loss = Variable(batch_loss, requires_grad=True)
+            batch_loss = Variable(batch_loss, requires_grad=True)
 
             if train:
-                self.attention_model.zero_grad(set_to_none=True)
+                self.attention_model.zero_grad()
                 batch_loss.backward()
                 self.opt.step()
 
