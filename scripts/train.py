@@ -122,13 +122,16 @@ class Trainer(object):
             # Compute accuracy
             batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
             batch_acc_verb = self.compute_accuracy(predictions_verb, verb_class)
-            train_acc_meter.update(batch_acc_verb.item(), batch_acc_noun.item(), n)
 
             # Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
             batch_loss_verb = self.compute_loss(predictions_verb, verb_class) 
             batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
-            train_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
             batch_loss = batch_loss_noun + batch_loss_verb
+
+            print(f'batch_loss_verb = {batch_loss_verb}, type = {batch_loss_verb.dtype}, grad_fn = {batch_loss_verb.grad_fn} \n'
+                  + f'batch_acc_verb = {batch_acc_verb}, type = {batch_acc_verb.dtype}, grad_fn = {batch_acc_verb.grad_fn}')
+            train_acc_meter.update(batch_acc_verb.item(), batch_acc_noun.item(), n)
+            train_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
 
             if train:
                 self.attention_model.zero_grad()
