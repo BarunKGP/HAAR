@@ -148,7 +148,7 @@ class Trainer(object):
 
         return batch_accuracy
 
-    def compute_loss(self, preds, labels, is_normalize=False):
+    def compute_loss(self, preds, labels, is_normalize=True):
         loss = self.loss_fn(preds, labels)
         if is_normalize:
             loss = loss / len(preds)
@@ -202,5 +202,5 @@ if __name__ == '__main__':
     # for (v, f, feats) in loader:
     #     print(feats.shape)
     
-    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss(reduction='none'))
+    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss(reduction='mean'))
     trainer.training_loop(num_epochs=1)
