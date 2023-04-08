@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from sentence_transformers import SentenceTransformer
 
-from constants import WORD_EMBEDDING_SIZE
+from constants import WORD_EMBEDDING_SIZE, MULTIMODAL_FEATURE_SIZE
 from utils import get_device, vector_gather
 
 # Neural Network configs
@@ -38,15 +38,15 @@ class AttentionModel(nn.Module):
             nn.Conv1d(in_channels=1, out_channels=100, kernel_size=3),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(4094, WORD_EMBEDDING_SIZE)
+            nn.Linear(MULTIMODAL_FEATURE_SIZE, WORD_EMBEDDING_SIZE)
         )
         self.linear_verb = nn.Linear(WORD_EMBEDDING_SIZE, self.C_verb, bias=True)
         self.linear_noun = nn.Linear(WORD_EMBEDDING_SIZE, self.C_noun, bias=True)
         self.softmax = nn.Softmax(dim=-1)
 
     def _predictions(self, frame_features, key, mode) -> torch.Tensor:
-        """_summary_
-
+        """Takes the frame_features and returns the predictions
+        for action (verb/noun)
         ------ Shape logic ------
         f = [b, D, 100]
         w1 = [b, C, D]
@@ -58,15 +58,17 @@ class AttentionModel(nn.Module):
         ----------------------------
 
         Args:
-            frame_features (_type_): _description_
-            key (_type_): _description_
-            mode (_type_): _description_
+            frame_features (torch.Tensor): the multimodal features
+            key (torch.Tensor): tensor of verb/noun class indices 
+                used to collect class-aware attention
+            mode (str): whether to predict verb or noun
 
         Raises:
-            Exception: _description_
+            Exception: Invalid mode. It has to be 'verb' or 'noun'
 
         Returns:
-            torch.Tensor: _description_
+            torch.Tensor: prediction probabilities for each verb/noun
+                class
         """
         if mode == 'verb':
             embeddings = self.verb_embeddings.to(self.device)
@@ -94,6 +96,6 @@ class AttentionModel(nn.Module):
         x = x[:, None, :].to(torch.float32)
         x = self.layer1(x).permute((0, 2, 1))
         verb_predictions = self._predictions(x, verb_class, 'verb')
-        # noun_predictions = self._predictions(x, noun_class, 'noun')
+        noun_predictions = self._predictions(x, noun_class, 'noun')
 
-        return verb_predictions#, noun_predictions
+        return verb_predictions, noun_predictions

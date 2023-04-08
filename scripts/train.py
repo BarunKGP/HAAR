@@ -14,11 +14,10 @@ import torch.nn.functional as F
 import torch.nn as nn
 from models import AttentionModel, WordEmbeddings
 
-from utils import ActionMeter, AverageMeter, get_device
+from utils import ActionMeter, get_device
 
 
 def get_dataloader(train=True):
-    print('Creating dataloader...')
     dataset = FrameLoader(
         loc = os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'),
         info_loc= os.path.join(PICKLE_ROOT, 'video_info.pkl')
@@ -108,9 +107,8 @@ class Trainer(object):
             self.attention_model.eval()
             loader = self.val_loader
         
-        #! Both of these should be ActionMeter
-        train_loss_meter = AverageMeter("train loss") 
-        train_acc_meter = AverageMeter("train accuracy")
+        train_loss_meter = ActionMeter("train loss") 
+        train_acc_meter = ActionMeter("train accuracy")
 
         # loop over each minibatch
         for (feats, verb_class, noun_class) in tqdm(loader):
@@ -119,28 +117,26 @@ class Trainer(object):
             noun_class = noun_class.to(self.device)
             n = feats.shape[0] # batch_size
 
-            predictions_verb = self.attention_model(feats, verb_class, noun_class)
+            predictions_verb, predictions_noun = self.attention_model(feats, verb_class, noun_class)
 
-            # batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
+            # Compute accuracy
+            batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
             batch_acc_verb = self.compute_accuracy(predictions_verb, verb_class)
-            # train_acc_meter.update(batch_acc_noun, batch_acc_verb, n=n)
-            train_acc_meter.update(batch_acc_verb, n)
+            train_acc_meter.update(batch_acc_verb.item(), batch_acc_noun.item(), n)
 
             # Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
-            batch_loss = self.compute_loss(predictions_verb, verb_class) #+ self.compute_loss(predictions_noun, self.noun_one_hot[noun_class])
-            print(f'batch loss = {batch_loss}')
-            print(f'grad fn = {batch_loss.grad_fn}')
-            # train_loss_meter.update(float(batch_loss.cpu().item()), n=n)
-            # batch_loss = Variable(batch_loss, requires_grad=True)
+            batch_loss_verb = self.compute_loss(predictions_verb, verb_class) 
+            batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
+            train_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
+            batch_loss = batch_loss_noun + batch_loss_verb
 
             if train:
-                # self.attention_model.zero_grad()
+                self.attention_model.zero_grad()
                 batch_loss.backward()
                 self.opt.step()
 
-            return batch_loss, batch_acc_verb
-
-        return train_loss_meter.avg, train_acc_meter.avg
+        return (train_loss_meter.avg_verb, train_loss_meter.avg_noun,
+            train_acc_meter.avg_verb, train_acc_meter.avg_noun)
     
     def compute_accuracy(self, preds, labels):
         preds = torch.argmax(preds, dim=1)
@@ -167,10 +163,10 @@ class Trainer(object):
         """
         self.attention_model.to(self.device)
         for epoch in tqdm(range(num_epochs)):
-            train_loss, verb_acc = self._train()
-
-            # self.train_loss_history.append(train_loss)
-            # self.train_accuracy_history.append((verb_acc, noun_acc))
+            loss_verb, loss_noun, acc_verb, acc_noun = self._train()
+            train_loss = loss_noun + loss_verb
+            self.train_loss_history.append(train_loss)
+            self.train_accuracy_history.append((acc_verb, acc_noun))
 
             # val_loss, val_verb_acc, val_noun_acc = self._train(train=False)
             # self.validation_loss_history.append(val_loss)
@@ -178,16 +174,16 @@ class Trainer(object):
 
             print(
                 f"Epoch:{epoch + 1}"
-                + f" Train Loss:{train_loss}"
+                + f" Train Loss (verb/noun):{loss_verb}/{loss_noun}"
                 # + f" Val Loss: {val_loss:.4f}"
-                + f" Train Accuracy (verb/noun): {verb_acc}"#/{noun_acc:.4f}"
+                + f" Train Accuracy (verb/noun): {acc_verb}/{acc_noun}"
                 # + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
             )
 
             # print('GPU usage:')
             # print(torch.cuda.list_gpu_processes(self.device))
-            # gc.collect()
-            # torch.cuda.empty_cache()
+        gc.collect()
+        torch.cuda.empty_cache()
         
         if save_model:
             if model_save_path is None:
@@ -198,10 +194,5 @@ class Trainer(object):
         # self.attention_model.detach().cpu()
 
 if __name__ == '__main__':
-    loader = get_dataloader()
-    # print(f'Obtained dataloader: length = {len(loader)}')
-    # for (v, f, feats) in loader:
-    #     print(feats.shape)
-    
     trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss(reduction='mean'))
     trainer.training_loop(num_epochs=1)

@@ -47,12 +47,12 @@ def vector_gather(vectors, indices):
     """
     if vectors.device != indices.device:
         indices = indices.to(vectors.device)
-    N, L, D = vectors.shape
+    N, _, D = vectors.shape
     squeeze = False
     if indices.ndim == 1:
         squeeze = True
         indices = indices.unsqueeze(-1)
-    N2, K = indices.shape
+    N2, _ = indices.shape
     assert N == N2
     indices = einops.repeat(indices, "N K -> N K D", D=D)
     out = torch.gather(vectors, dim=1, index=indices)
@@ -60,35 +60,10 @@ def vector_gather(vectors, indices):
         out = out.squeeze(1)
     return out
 
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-
-    def __init__(self, name: str, fmt: str = ":f") -> None:
-        self.name = name
-        self.fmt = fmt
-        self.reset()
-
-    def reset(self) -> None:
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val: float, n: int = 1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-    def __str__(self):
-        fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
-        return fmtstr.format(**self.__dict__)
-
 class ActionMeter():
+    """Computes and stores the average and current value"""
     def __init__(self, name: str, fmt: str = ":f") -> None:
         self.name = name
-        self.noun_meter = AverageMeter(name, fmt)
-        self.verb_meter = AverageMeter(name, fmt)
         self.fmt = fmt
         self.reset()
 
@@ -98,7 +73,7 @@ class ActionMeter():
         self.sum_noun = self.sum_verb = 0
         self.count = 0
 
-    def update(self, val_noun: float, val_verb: float, n: int = 1):
+    def update(self, val_verb: float, val_noun: float, n: int = 1):
         self.val_noun = val_noun
         self.val_verb = val_verb
         self.sum_noun += val_noun * n
@@ -108,5 +83,6 @@ class ActionMeter():
         self.avg_verb = self.sum_verb / self.count
 
     def __str__(self):
-        fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
+        fmtstr = "{name} ({val_verb" + self.fmt + "}), ({val_noun" + self.fmt + "}),\
+              ({avg_verb" + self.fmt + "}), ({avg_noun" + self.fmt + "})"
         return fmtstr.format(**self.__dict__)
