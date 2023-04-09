@@ -1,5 +1,6 @@
 import torch
 import einops
+import pickle
 
 def get_sec(time_str):
     """Get Seconds from time. Used to find the corresponding frame
@@ -59,6 +60,21 @@ def vector_gather(vectors, indices):
     if squeeze:
         out = out.squeeze(1)
     return out
+
+def write_pickle(o, pname):
+    with open(pname, 'xb') as handle:
+        pickle.dump(o, handle)
+
+def read_pickle(pname, single=True):
+    with open(pname, 'rb') as handle:
+        if single:
+            return pickle.load(handle)
+        data = []
+        while True:
+            try:
+                data.append(pickle.load(handle))
+            except EOFError:
+                return data
 
 class ActionMeter():
     """Computes and stores the average and current value"""

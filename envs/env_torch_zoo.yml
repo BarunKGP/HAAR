@@ -1,4 +1,4 @@
-name: torch-zoo
+name: haar
 channels:
   - nvidia
   - conda-forge
@@ -19,6 +19,5 @@ dependencies:
     - pillow
     - ftfy
     - regex
-    - tqdm
     - sentence-transformers
     - einops
