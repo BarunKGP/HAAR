@@ -13,9 +13,8 @@ dependencies:
   - pandas
   - jupyter
   - pytest
-  - pytorch:
-    - pytorch
-    - torchvision
+  - pytorch
+  - torchvision
   - pip:
     - pillow
     - ftfy
