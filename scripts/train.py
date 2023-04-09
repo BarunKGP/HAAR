@@ -130,7 +130,7 @@ class Trainer(object):
 
             print(f'batch_loss_verb = {batch_loss_verb} \n'
                   + f'batch_acc_verb = {batch_acc_verb}')
-            train_acc_meter.update(batch_acc_verb.item(), batch_acc_noun.item(), n)
+            train_acc_meter.update(batch_acc_verb, batch_acc_noun, n)
             train_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
 
             if train:
