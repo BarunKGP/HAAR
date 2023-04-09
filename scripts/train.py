@@ -17,13 +17,13 @@ def get_dataloader(train=True):
     if train:
         dataset = FrameLoader(
             # loc = os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'),
-            loc = '../data/train_100.pkl', # Special case for pilot study
+            loc = os.path.join('../data', 'train_100.pkl'), # Special case for pilot study
             info_loc= os.path.join(PICKLE_ROOT, 'video_info.pkl')
             )
     else:
          dataset = FrameLoader(
             # loc = os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'),
-            loc = '../data/test_100.pkl', # Special case for pilot study
+            loc = os.path.join('../data', 'test_100.pkl'), # Special case for pilot study
             info_loc= os.path.join(PICKLE_ROOT, 'video_info.pkl')
             )
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
