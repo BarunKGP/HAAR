@@ -1,19 +1,16 @@
 import gc
 import os
 
-import torch
-from tqdm import tqdm
-from frame_loader import FrameLoader
-from constants import BATCH_SIZE, PICKLE_ROOT, NUM_NOUNS, NUM_VERBS, VERB_CLASSES, NOUN_CLASSES
-
 import pandas as pd
-
-from torch.utils.data import DataLoader
-from torch.autograd import Variable
-import torch.nn.functional as F
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from constants import (BATCH_SIZE, NOUN_CLASSES, NUM_NOUNS, NUM_VERBS,
+                       PICKLE_ROOT, VERB_CLASSES)
+from frame_loader import FrameLoader
 from models import AttentionModel, WordEmbeddings
-
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 from utils import ActionMeter, get_device
 
 
@@ -111,7 +108,7 @@ class Trainer(object):
         train_acc_meter = ActionMeter("train accuracy")
 
         # loop over each minibatch
-        for (feats, verb_class, noun_class) in tqdm(loader):
+        for (feats, verb_class, noun_class) in tqdm(loader, desc='loader'):
             feats = feats.to(self.device)
             verb_class = verb_class.to(self.device)
             noun_class = noun_class.to(self.device)
@@ -128,7 +125,7 @@ class Trainer(object):
             batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
             batch_loss = batch_loss_noun + batch_loss_verb
 
-            print(f'batch_loss_verb = {batch_loss_verb} \n'
+            print(f'\nbatch_loss_verb = {batch_loss_verb} \n'
                   + f'batch_acc_verb = {batch_acc_verb}')
             train_acc_meter.update(batch_acc_verb, batch_acc_noun, n)
             train_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
@@ -165,7 +162,7 @@ class Trainer(object):
             test (bool, optional): _description_. Defaults to False.
         """
         self.attention_model.to(self.device)
-        for epoch in tqdm(range(num_epochs)):
+        for epoch in tqdm(range(num_epochs), desc='epoch'):
             loss_verb, loss_noun, acc_verb, acc_noun = self._train()
             train_loss = loss_noun + loss_verb
             self.train_loss_history.append(train_loss)

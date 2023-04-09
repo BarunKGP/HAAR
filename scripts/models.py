@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
+from constants import MULTIMODAL_FEATURE_SIZE, WORD_EMBEDDING_SIZE
 from sentence_transformers import SentenceTransformer
-
-from constants import WORD_EMBEDDING_SIZE, MULTIMODAL_FEATURE_SIZE
 from utils import get_device, vector_gather
 
 # Neural Network configs
