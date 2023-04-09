@@ -25,7 +25,10 @@ class FrameLoader(Dataset):
         self.dataset = []
         self.video_info_df = self.generate(info_loc)
         self.data_df = self.generate(loc)
-
+        if self.video_info_df.empty or self.data_df.empty:
+            raise Exception("Empty DataFrame")
+        
+        self.data_df = self.data_df.reset_index() # Special case for pilot
         self.create_dataset()
 
     def generate(self, file_loc: str) -> List[Tuple]:
@@ -59,14 +62,7 @@ class FrameLoader(Dataset):
         Raises:
             Exception: Empty dataset exception
         """
-        if self.video_info_df.empty or self.data_df.empty:
-            raise Exception("Empty DataFrame")
-        i = 0
-        for index, row in self.data_df.iterrows():
-            i += 1
-            if i > 2:
-                break
-            
+        for index, row in self.data_df.iterrows(): # We need index to be an integer
             video_id = row['video_id']
             participant_id = row['participant_id']
             narr_timestamp = row['narration_timestamp']
