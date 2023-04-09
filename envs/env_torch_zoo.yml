@@ -6,16 +6,16 @@ channels:
   - defaults
 dependencies:
   - python==3.8.5
-  - cudatoolkit
   - numpy
-  - pytorch
-  - torchvision
   - opencv
   - pip==20.2.2=py38_0
   - matplotlib
   - pandas
   - jupyter
   - pytest
+  - pytorch:
+    - pytorch
+    - torchvision
   - pip:
     - pillow
     - ftfy
