@@ -198,7 +198,7 @@ class Trainer(object):
             self.train_loss_history.append(train_loss)
             self.train_accuracy_history.append((acc_verb, acc_noun))
 
-            if (epoch + 1) % 100 == 0:
+            if (epoch + 1) % 100 == 0 or epoch == 0:
                 val_loss_verb, val_loss_noun, val_verb_acc, val_noun_acc = self._validate()
                 val_loss = val_loss_noun + val_loss_verb
                 self.validation_loss_history.append(val_loss)
@@ -231,4 +231,4 @@ class Trainer(object):
 
 if __name__ == '__main__':
     trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss(reduction='mean'))
-    trainer.training_loop(num_epochs=500, save_model=True, model_save_path='../data/pilot-01')
+    trainer.training_loop(num_epochs=1, save_model=True, model_save_path='../data/pilot-01')
