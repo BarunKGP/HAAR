@@ -70,9 +70,6 @@ class FrameLoader(Dataset):
             verb_class = row['verb_class']
             noun_class = row['noun_class']
 
-            print(f'narr_timestamp: {type(narr_timestamp)}')
-            print(f'index: {type(index)}')
-
             frame_rate = float(
                 self.video_info_df.loc[self.video_info_df['video_id'] == video_id]['fps'].iat[0])
             start_frame = int(get_sec(narr_timestamp) * frame_rate)
