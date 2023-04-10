@@ -2,7 +2,7 @@ import pickle
 from sklearn.model_selection import train_test_split
 
 
-with open('../../../../epic-kitchens-100-annotations/EPIC_100_train.pkl', 'rb') as f:
+with open('../../../epic-kitchens-100-annotations/EPIC_100_train.pkl', 'rb') as f:
     df_train = pickle.load(f)
 
 df_train100 = df_train[df_train.video_id.apply(lambda x: len(x) == 7)]
