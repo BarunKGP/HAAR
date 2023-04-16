@@ -11,6 +11,6 @@ NOUN_CLASSES = "../../epic-kitchens-100-annotations/EPIC_100_noun_classes_v2.csv
 
 TRAIN_PICKLE = "../data/train100_version_fix.pkl"  # location of pickle file to generate the training dataset
 VALIDATION_PICKLE = ""  # location of pickle file to generate the validation dataset
-TEST_PICKLE = "../data/test00_version_fix.pkl"  # location of pickle file to generate the test dataset
+TEST_PICKLE = "../data/test100_version_fix.pkl"  # location of pickle file to generate the test dataset
 
 SENTENCE_TRANSFORMER_MODEL = "all-MiniLM-L6-v2"

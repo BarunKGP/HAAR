@@ -98,6 +98,9 @@ class AttentionModel(nn.Module):
 
         return y
 
+    def __evaluate(self):
+        pass
+
     def forward(self, x: torch.Tensor, verb_class, noun_class):
         x = x[:, None, :].to(torch.float32)
         x = self.layer1(x).permute((0, 2, 1))
