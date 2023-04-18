@@ -1,29 +1,50 @@
-import torch
-import einops
+import logging
 import pickle
+import sys
+
+import einops
+import torch
+
 
 def get_sec(time_str):
     """Get Seconds from time. Used to find the corresponding frame
     for a given timestamp
     """
-    h, m, s = time_str.split(':')
+    h, m, s = time_str.split(":")
     return float(h) * 3600 + float(m) * 60 + float(s)
 
-def log_print(logger, text, log_mode='debug'):
+
+def get_loggers(
+    name: str,
+    fmt=logging.Formatter(
+        "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s"
+    ),
+    handlers=[(logging.StreamHandler(stream=sys.stdout), logging.INFO)],
+):
+    logger = logging.getLogger(name)
+    for handler, level in handlers:
+        handler.setLevel(level)
+        handler.setFomatter(fmt)
+        logger.addHandler(handler)
+    return logger
+
+
+def log_print(logger, text, log_mode="debug"):
     """Log and print text to console
 
     Args:
         logger (_type_): _description_
         text (_type_): _description_
     """
-    if log_mode == 'debug':
+    if log_mode == "debug":
         logger.debug(text)
-    elif log_mode == 'info':
+    elif log_mode == "info":
         logger.info(text)
-    elif log_mode == 'warn':
+    elif log_mode == "warn":
         logger.warn(text)
     print(text)
-    
+
+
 def get_device():
     """Decide whether to run on CPU or CUDA
 
@@ -31,11 +52,11 @@ def get_device():
         (str): device to run on
     """
     if torch.cuda.is_available():
-        device = 'cuda'
+        device = "cuda"
     else:
-        device = 'cpu'
-
+        device = "cpu"
     return device
+
 
 def vector_gather(vectors, indices):
     """
@@ -61,12 +82,14 @@ def vector_gather(vectors, indices):
         out = out.squeeze(1)
     return out
 
+
 def write_pickle(o, pname):
-    with open(pname, 'xb') as handle:
+    with open(pname, "xb") as handle:
         pickle.dump(o, handle)
 
+
 def read_pickle(pname, single=True):
-    with open(pname, 'rb') as handle:
+    with open(pname, "rb") as handle:
         if single:
             return pickle.load(handle)
         data = []
@@ -76,8 +99,10 @@ def read_pickle(pname, single=True):
             except EOFError:
                 return data
 
-class ActionMeter():
+
+class ActionMeter:
     """Computes and stores the average and current value"""
+
     def __init__(self, name: str, fmt: str = ":f") -> None:
         self.name = name
         self.fmt = fmt
@@ -99,6 +124,17 @@ class ActionMeter():
         self.avg_verb = self.sum_verb / self.count
 
     def __str__(self):
-        fmtstr = "{name} ({val_verb" + self.fmt + "}), ({val_noun" + self.fmt + "}),\
-              ({avg_verb" + self.fmt + "}), ({avg_noun" + self.fmt + "})"
+        fmtstr = (
+            "({name} ({val_verb"
+            + self.fmt
+            + "}), ({val_noun"
+            + self.fmt
+            + "})"
+            + "({avg_verb"
+            + self.fmt
+            + "}), ({avg_noun"
+            + self.fmt
+            + "})"
+        )
+
         return fmtstr.format(**self.__dict__)

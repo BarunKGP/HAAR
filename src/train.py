@@ -23,25 +23,17 @@ from frame_loader import FrameLoader
 from models import AttentionModel, WordEmbeddings
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from utils import ActionMeter, get_device, write_pickle
+from utils import ActionMeter, get_device, get_loggers, write_pickle
 
 # LOGGING
-logger = logging.getLogger(__name__)
-formatter = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s"
-)
 stream_handler = logging.StreamHandler(stream=sys.stdout)
 file_handler = RotatingFileHandler(
     filename="logs/train.log", maxBytes=50000, backupCount=5
 )
-
-stream_handler.setLevel(logging.WARNING)
-stream_handler.setFormatter(formatter)
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(formatter)
-
-logger.addHandler(stream_handler)
-logger.addHandler(file_handler)
+logger = get_loggers(
+    name=__name__,
+    handlers=[(stream_handler, logging.INFO), (file_handler, logging.ERROR)],
+)
 
 
 def get_dataloader(train=True):
@@ -65,6 +57,7 @@ def get_word_map(file_loc):
     try:
         df = pd.read_csv(file_loc)
     except:
+        logger.error(f"Invalid file location: {file_loc}", exc_info=True)
         raise FileNotFoundError(f"Invalid file location: {file_loc}")
     return df[["id", "key"]]
 
@@ -112,14 +105,18 @@ class Trainer(object):
     def get_model(self):
         return self.attention_model
 
-    def save_model(self, epoch, path=os.getcwd()) -> None:
+    def save_model(self, epoch, path=None) -> None:
         """
         Saves the model state and optimizer state on the dict
 
         __args__:
             epoch (int): number of epochs the model has been
-            trained for
+                trained for
+            path [Optional(str)]: path where to save the model.
+                Defaults to self.save_path
         """
+        if path is None:
+            path = self.save_path
         torch.save(
             {
                 "epoch": epoch,
@@ -163,8 +160,6 @@ class Trainer(object):
             batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
             batch_loss = batch_loss_noun + batch_loss_verb
 
-            # print(f'\nbatch_loss_verb = {batch_loss_verb} \n'
-            #       + f'batch_acc_verb = {batch_acc_verb}')
             train_acc_meter.update(batch_acc_verb, batch_acc_noun, n)
             train_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
 
@@ -227,14 +222,18 @@ class Trainer(object):
         return loss
 
     # baseline paper used num_epochs = 3e6
-    def training_loop(self, num_epochs=500, save_model=False, model_save_path=None):
+    def training_loop(self, num_epochs=500, model_save_path=None):
         """Run the main training loop for the model.
         May need to run separate loops for train/test.
 
         Args:
-            num_epochs (int, optional): _description_. Defaults to 500.
-            test (bool, optional): _description_. Defaults to False.
+            num_epochs (int, optional): number of training epochs.
+                Defaults to 500.
+            model_save_path (str, optional): path to save model during
+                and after training. Defaults to self.save_path
         """
+        if model_save_path is None:
+            model_save_path = self.save_path
         self.attention_model.to(self.device)
         for epoch in tqdm(range(num_epochs), desc="epoch"):
             loss_verb, loss_noun, acc_verb, acc_noun = self._train()
@@ -242,7 +241,7 @@ class Trainer(object):
             self.train_loss_history.append(train_loss)
             self.train_accuracy_history.append((acc_verb, acc_noun))
 
-            if (epoch + 1) % 100 == 0 or epoch == 0:
+            if epoch % 100 == 0:
                 (
                     val_loss_verb,
                     val_loss_noun,
@@ -252,34 +251,34 @@ class Trainer(object):
                 val_loss = val_loss_noun + val_loss_verb
                 self.validation_loss_history.append(val_loss)
                 self.validation_accuracy_history.append((val_verb_acc, val_noun_acc))
-                print(
+                logger.info(
                     f"Epoch:{epoch + 1}"
                     + f" Train Loss (verb/noun):{loss_verb}/{loss_noun}"
                     + f" Val Loss (verb/noun): {val_loss_verb}/{val_loss_noun}"
                     + f" Train Accuracy (verb/noun): {acc_verb:.4f}/{acc_noun:.4f}"
                     + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
                 )
-                if save_model:
-                    if model_save_path is None:
-                        self.save_model(epoch)
-                    else:
-                        self.save_model(epoch, path=model_save_path)
+                self.save_model(epoch, path=model_save_path)
             # print('GPU usage:')
             # print(torch.cuda.list_gpu_processes(self.device))
-        gc.collect()
-        torch.cuda.empty_cache()
+        # gc.collect()
+        # torch.cuda.empty_cache()
 
         # Write training stats for analysis
         train_stats = {
             "accuracy": self.train_accuracy_history,
             "loss": self.train_loss_history,
         }
+        logger.log(level=35, msg="Finished training")
         fname = os.path.join(model_save_path, "train_stats.pkl")
         write_pickle(train_stats, fname)
 
 
 if __name__ == "__main__":
-    trainer = Trainer(VERB_CLASSES, NOUN_CLASSES, nn.CrossEntropyLoss(reduction="mean"))
-    trainer.training_loop(
-        num_epochs=1, save_model=True, model_save_path="../data/pilot-01"
+    trainer = Trainer(
+        VERB_CLASSES,
+        NOUN_CLASSES,
+        nn.CrossEntropyLoss(reduction="mean"),
+        save_path="data/pilot-01",
     )
+    trainer.training_loop(num_epochs=1)
