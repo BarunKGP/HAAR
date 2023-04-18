@@ -11,34 +11,17 @@ from pandas import DataFrame
 from torch.utils.data import Dataset
 from utils import get_sec
 
-"""
-
-
-
-Custom PyTorch Dataset class that creates the dataset from 
-
-
-
-the pickle files. It returns the rgb, flow and narration 
-
-
-
-embeddings concatenated into a tensor. Stride is implemented 
-
-
-
-so that we only consider 1 frame per stride. This helps us reduce
-
-
-
-the dataset size and improve computation time.
-
-
-
-"""
-
 
 class FrameLoader(Dataset):
+
+    """
+    Custom PyTorch Dataset class that creates the dataset from
+    the pickle files. It returns the rgb, flow and narration
+    embeddings concatenated into a tensor. Stride is implemented
+    so that we only consider 1 frame per stride. This helps us reduce
+    the dataset size and improve computation time.
+    """
+
     def __init__(self, loc: str, info_loc: str, train: bool = True) -> None:
         super().__init__()
         self.dataset = []
@@ -81,7 +64,6 @@ class FrameLoader(Dataset):
         """
         self.data_df = self.data_df.sort_values(by=["video_id"])
         for index, row in self.data_df.iterrows():  # We need index to be an integer
-            print(f"index ({type(index)}) = {index}")
             video_id = row["video_id"]
             participant_id = row["participant_id"]
             narr_timestamp = row["narration_timestamp"]
@@ -95,8 +77,15 @@ class FrameLoader(Dataset):
                 ].iat[0]
             )
             start_frame = int(get_sec(narr_timestamp) * frame_rate) + 1
-            # if len(self.data_df) > index + 1 and self.data_df.loc[index + 1, 'video_id'] == video_id
-            if index == len(self.data_df) - 1:
+            if (
+                len(self.data_df) > index + 1  # type: ignore
+                and self.data_df.loc[index + 1, "video_id"] == video_id  # type: ignore
+            ):
+                end_frame = int(
+                    get_sec(self.data_df.at[index + 1, "narration_timestamp"])  # type: ignore # type: ignore
+                    * frame_rate
+                )
+            else:
                 end_frame = (
                     int(
                         self.video_info_df.loc[
@@ -106,11 +95,10 @@ class FrameLoader(Dataset):
                     )
                     + 1
                 )
-            else:
-                end_frame = int(
-                    get_sec(self.data_df.at[index + 1, "narration_timestamp"])
-                    * frame_rate
-                )
+            assert (
+                end_frame / frame_rate
+                <= self.video_info_df[["video_id"] == video_id]["duration"].iat[0]
+            ), f"end_frame = {end_frame} for video {video_id} is longer than duration"
             participant_root_dir = os.path.join(DATA_ROOT, participant_id)
 
             for frame in range(start_frame, end_frame, STRIDE):
@@ -126,7 +114,7 @@ class FrameLoader(Dataset):
                         noun_class,
                     )
                 )
-        print("Created dataset...")
+        # print("Created dataset...")
 
     def __len__(self) -> int:
         return len(self.dataset)
