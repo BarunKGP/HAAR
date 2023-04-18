@@ -13,15 +13,27 @@ from utils import get_sec
 
 """
 
+
+
 Custom PyTorch Dataset class that creates the dataset from 
+
+
 
 the pickle files. It returns the rgb, flow and narration 
 
+
+
 embeddings concatenated into a tensor. Stride is implemented 
+
+
 
 so that we only consider 1 frame per stride. This helps us reduce
 
+
+
 the dataset size and improve computation time.
+
+
 
 """
 
@@ -67,7 +79,9 @@ class FrameLoader(Dataset):
         Raises:
             Exception: Empty dataset exception
         """
+        self.data_df = self.data_df.sort_values(by=["video_id"])
         for index, row in self.data_df.iterrows():  # We need index to be an integer
+            print(f"index ({type(index)}) = {index}")
             video_id = row["video_id"]
             participant_id = row["participant_id"]
             narr_timestamp = row["narration_timestamp"]
@@ -80,7 +94,8 @@ class FrameLoader(Dataset):
                     "fps"
                 ].iat[0]
             )
-            start_frame = int(get_sec(narr_timestamp) * frame_rate)
+            start_frame = int(get_sec(narr_timestamp) * frame_rate) + 1
+            # if len(self.data_df) > index + 1 and self.data_df.loc[index + 1, 'video_id'] == video_id
             if index == len(self.data_df) - 1:
                 end_frame = (
                     int(
