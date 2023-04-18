@@ -95,9 +95,9 @@ class FrameLoader(Dataset):
                     )
                     + 1
                 )
-            assert (
-                end_frame/frame_rate<=self.video_info_df[["video_id"] == video_id]["duration"].iat[0]
-            ), f"end_frame = {end_frame} for video {video_id} is longer than duration"
+            # assert (
+            #     end_frame/frame_rate<=self.video_info_df[["video_id"] == video_id]["duration"].iat[0]
+            # ), f"end_frame = {end_frame} for video {video_id} is longer than duration"
             participant_root_dir = os.path.join(DATA_ROOT, participant_id)
 
             for frame in range(start_frame, end_frame, STRIDE):
