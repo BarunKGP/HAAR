@@ -1,5 +1,9 @@
 import gc
+
+import logging
 import os
+import sys
+from logging.handlers import RotatingFileHandler
 
 import pandas as pd
 import torch
@@ -20,6 +24,24 @@ from models import AttentionModel, WordEmbeddings
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from utils import ActionMeter, get_device, write_pickle
+
+# LOGGING
+logger = logging.getLogger(__name__)
+formatter = logging.Formatter(
+    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s"
+)
+stream_handler = logging.StreamHandler(stream=sys.stdout)
+file_handler = RotatingFileHandler(
+    filename="logs/train.log", maxBytes=50000, backupCount=5
+)
+
+stream_handler.setLevel(logging.WARNING)
+stream_handler.setFormatter(formatter)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(formatter)
+
+logger.addHandler(stream_handler)
+logger.addHandler(file_handler)
 
 
 def get_dataloader(train=True):
@@ -48,8 +70,9 @@ def get_word_map(file_loc):
 
 
 class Trainer(object):
-    def __init__(self, verb_loc, noun_loc, loss_fn) -> None:
+    def __init__(self, verb_loc, noun_loc, loss_fn, save_path="data/train_run") -> None:
         self.loss_fn = loss_fn
+        self.save_path = save_path
 
         self.train_loader = get_dataloader()
         self.val_loader = get_dataloader(train=False)
@@ -120,7 +143,9 @@ class Trainer(object):
         train_acc_meter = ActionMeter("train accuracy")
 
         # loop over each minibatch
-        for feats, verb_class, noun_class in tqdm(loader, desc="train_loader"):
+        for feats, verb_class, noun_class in tqdm(
+            loader, desc="train_loader", total=len(loader)
+        ):
             feats = feats.to(self.device)
             verb_class = verb_class.to(self.device)
             noun_class = noun_class.to(self.device)
@@ -161,7 +186,9 @@ class Trainer(object):
         val_acc_meter = ActionMeter("val accuracy")
 
         # loop over each minibatch
-        for feats, verb_class, noun_class in tqdm(loader, desc="val_loader"):
+        for feats, verb_class, noun_class in tqdm(
+            loader, desc="val_loader", total=len(loader)
+        ):
             feats = feats.to(self.device)
             verb_class = verb_class.to(self.device)
             noun_class = noun_class.to(self.device)
@@ -243,13 +270,12 @@ class Trainer(object):
         torch.cuda.empty_cache()
 
         # Write training stats for analysis
-        if model_save_path:
-            train_stats = {
-                "accuracy": self.train_accuracy_history,
-                "loss": self.train_loss_history,
-            }
-            fname = os.path.join(model_save_path, "train_stats.pkl")
-            write_pickle(train_stats, fname)
+        train_stats = {
+            "accuracy": self.train_accuracy_history,
+            "loss": self.train_loss_history,
+        }
+        fname = os.path.join(model_save_path, "train_stats.pkl")
+        write_pickle(train_stats, fname)
 
 
 if __name__ == "__main__":
