@@ -24,7 +24,7 @@ def get_loggers(
     logger = logging.getLogger(name)
     for handler, level in handlers:
         handler.setLevel(level)
-        handler.setFomatter(fmt)
+        handler.setFormatter(fmt)
         logger.addHandler(handler)
     return logger
 
