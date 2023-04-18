@@ -28,7 +28,7 @@ from utils import ActionMeter, get_device, get_loggers, write_pickle
 # LOGGING
 stream_handler = logging.StreamHandler(stream=sys.stdout)
 file_handler = RotatingFileHandler(
-    filename="logs/train.log", maxBytes=50000, backupCount=5
+    filename="data/pilot-01/logs/train.log", maxBytes=50000, backupCount=5
 )
 logger = get_loggers(
     name=__name__,
