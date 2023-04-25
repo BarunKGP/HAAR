@@ -7,7 +7,7 @@ from typing import Any, List, Tuple
 from clip_features import get_features
 from constants import DATA_ROOT, STRIDE
 
-from pandas import DataFrame
+import pandas as pd
 from torch.utils.data import Dataset
 from utils import get_sec
 
@@ -32,7 +32,7 @@ class FrameLoader(Dataset):
         self.data_df = self.data_df.reset_index()  # Special case for pilot
         self.create_dataset()
 
-    def generate(self, file_loc: str) -> DataFrame:
+    def generate(self, file_loc: str) -> pd.DataFrame:
         """Generates the dataset from pickle file.
 
         Arguments:
@@ -62,7 +62,48 @@ class FrameLoader(Dataset):
         Raises:
             Exception: Empty dataset exception
         """
-        self.data_df = self.data_df.sort_values(by=["video_id"])
+        self.data_df = self.data_df.sort_values(by=["video_id", "narration_timestamp"])
+
+        # Broadcasting
+        # df = self.data_df[
+        #     [
+        #         "video_id",
+        #         "participant_id",
+        #         "narration_timestamp",
+        #         "narration",
+        #         "verb_class",
+        #         "noun_class",
+        #     ]
+        # ]
+        # df = pd.merge(df, self.video_info_df, how="left", on="video_id")
+        # df["start_frame"] = df.apply(
+        #     lambda row: int(get_sec(row["narration_timestamp"]) * row["fps"]) + 1,
+        #     axis=1,
+        # )
+        # df["end_frame"] = df.groupby("video_id")["start_frame"].shift(-1, fill_value=0)
+        # df["end_frame"] = df.apply(
+        #     lambda row: int(row["duration"] * row["fps"]) + 1
+        #     if row["end_frame"] == 0
+        #     else row["end_frame"],
+        #     axis=1,
+        # )
+        # df["root_dir"] = df.apply(
+        #     lambda row: os.path.join(DATA_ROOT, row["participant_id"]), axis=1
+        # )
+        # df = df[
+        #     [
+        #         "video_id",
+        #         "root_dir",
+        #         "narration",
+        #         "start_frame",
+        #         "end_frame",
+        #         "verb_class",
+        #         "noun_class",
+        #     ]
+        # ]
+        # self.dataset = df.to_numpy()
+
+        # ? Takes a lot of time ig - need to check
         for index, row in self.data_df.iterrows():  # We need index to be an integer
             video_id = row["video_id"]
             participant_id = row["participant_id"]
@@ -130,6 +171,6 @@ class FrameLoader(Dataset):
             feat (torch.Tensor): fused multimodal features of
                 size (4096,)
         """
-        _, root, video_id, frame_id, narr, verb_class, noun_class = self.dataset[idx]
+        video_id, root, frame_id, narr, verb_class, noun_class = self.dataset[idx]
         feats = get_features(root, video_id, frame_id, narr)
         return (feats, verb_class, noun_class)
