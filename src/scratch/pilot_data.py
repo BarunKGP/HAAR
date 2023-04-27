@@ -16,11 +16,13 @@ except ImportError or ModuleNotFoundError:
 
 
 def _format_ds_(data_df, video_info_df):
-    df = data_df[
+    df = data_df.sort_values(by=["video_id", "narration_timestamp"])
+    df = df[
         [
             "video_id",
             "participant_id",
             "narration_timestamp",
+            "narration_id",
             "narration",
             "verb_class",
             "noun_class",
@@ -41,17 +43,7 @@ def _format_ds_(data_df, video_info_df):
     df["root_dir"] = df.apply(
         lambda row: os.path.join(DATA_ROOT, row["participant_id"]), axis=1
     )
-    df = df[
-        [
-            "video_id",
-            "root_dir",
-            "narration",
-            "start_frame",
-            "end_frame",
-            "verb_class",
-            "noun_class",
-        ]
-    ]
+    df = df.drop(labels=["participant_id"], axis=1)
     return df
 
 
