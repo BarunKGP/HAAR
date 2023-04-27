@@ -3,7 +3,7 @@ import pickle
 import sys
 
 # import einops
-import torch
+# import torch
 
 
 def get_sec(time_str) -> float:
@@ -45,17 +45,17 @@ def log_print(logger, text, log_mode="debug"):
     print(text)
 
 
-def get_device():
-    """Decide whether to run on CPU or CUDA
+# def get_device():
+#     """Decide whether to run on CPU or CUDA
 
-    Returns:
-        (str): device to run on
-    """
-    if torch.cuda.is_available():
-        device = "cuda"
-    else:
-        device = "cpu"
-    return device
+#     Returns:
+#         (str): device to run on
+#     """
+#     if torch.cuda.is_available():
+#         device = "cuda"
+#     else:
+#         device = "cpu"
+#     return device
 
 
 # def vector_gather(vectors, indices):

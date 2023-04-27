@@ -1,15 +1,18 @@
 import os
 import pickle
-import sys
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-utils_path = os.path.abspath(os.path.join(".."))
-if utils_path not in sys.path:
-    sys.path.append(utils_path)
-from constants import DATA_ROOT
-from utils import get_sec
+try:
+    from constants import DATA_ROOT
+    from utils import get_sec
+except ImportError or ModuleNotFoundError:
+    import sys
+
+    sys.path.append(sys.path[0] + "/..")
+    from constants import DATA_ROOT
+    from utils import get_sec
 
 
 def _format_ds_(data_df, video_info_df):
@@ -52,32 +55,37 @@ def _format_ds_(data_df, video_info_df):
     return df
 
 
-with open("data/epic-kitchens-100-annotations/EPIC_100_train.pkl", "rb") as f:
-    df_train = pickle.load(f)
-df_train100 = df_train[df_train.video_id.apply(lambda x: len(x) == 7)]
+def main():
+    with open("data/epic-kitchens-100-annotations/EPIC_100_train.pkl", "rb") as f:
+        df_train = pickle.load(f)
+    df_train100 = df_train[df_train.video_id.apply(lambda x: len(x) == 7)]
 
-video_df = pd.read_csv("data/epic-kitchens-100-annotations/EPIC_100_video_info.csv")
+    video_df = pd.read_csv("data/epic-kitchens-100-annotations/EPIC_100_video_info.csv")
 
-# test-train split
-participants = df_train100.participant_id.unique()
-p_train, p_test = train_test_split(participants, test_size=0.15)
+    # test-train split
+    participants = df_train100.participant_id.unique()
+    p_train, p_test = train_test_split(participants, test_size=0.15)
 
-train = df_train100[df_train100["participant_id"].isin(p_train)]
-test = df_train100[df_train100["participant_id"].isin(p_test)]
+    train = df_train100[df_train100["participant_id"].isin(p_train)]
+    test = df_train100[df_train100["participant_id"].isin(p_test)]
 
-print("Train participants: ", p_train, "\n")
-print("Test participants: ", p_test)
+    print("Train participants: ", p_train, "\n")
+    print("Test participants: ", p_test)
 
-# format DataFrames
-train_modified = _format_ds_(train, video_df)
-test_modified = _format_ds_(test, video_df)
-print(train_modified.info())
-print(test.info())
+    # format DataFrames
+    train_modified = _format_ds_(train, video_df)
+    test_modified = _format_ds_(test, video_df)
+    print(train_modified.info())
+    print(test_modified.info())
 
-with open("data/train100_mod.pkl", "xb") as handle:
-    pickle.dump(train_modified, handle)
-print("Wrote train pickle")
+    with open("data/train100_mod.pkl", "xb") as handle:
+        pickle.dump(train_modified, handle)
+    print("Wrote train pickle")
 
-with open("data/test100_mod.pkl", "xb") as handle:
-    pickle.dump(test, handle)
-print("Wrote test pickle")
+    with open("data/test100_mod.pkl", "xb") as handle:
+        pickle.dump(test_modified, handle)
+    print("Wrote test pickle")
+
+
+if __name__ == "__main__":
+    main()
