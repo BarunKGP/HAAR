@@ -1,9 +1,14 @@
 import os
 import pickle
+import sys
 
 import pandas as pd
-from constants import DATA_ROOT
 from sklearn.model_selection import train_test_split
+
+utils_path = os.path.abspath(os.path.join(".."))
+if utils_path not in sys.path:
+    sys.path.append(utils_path)
+from constants import DATA_ROOT
 from utils import get_sec
 
 
