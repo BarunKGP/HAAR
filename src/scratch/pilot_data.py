@@ -51,6 +51,7 @@ def main():
     with open("data/epic-kitchens-100-annotations/EPIC_100_train.pkl", "rb") as f:
         df_train = pickle.load(f)
     df_train100 = df_train[df_train.video_id.apply(lambda x: len(x) == 7)]
+    df_train100 = df_train100.reset_index()
 
     video_df = pd.read_csv("data/epic-kitchens-100-annotations/EPIC_100_video_info.csv")
 
