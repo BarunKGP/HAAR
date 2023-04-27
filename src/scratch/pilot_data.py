@@ -47,11 +47,13 @@ def _format_ds_(data_df, video_info_df):
     return df
 
 
-with open("data/epic-kitchens-100-annotations/EPIC_100_train.pkl", "rb") as f:
+with open("../../data/epic-kitchens-100-annotations/EPIC_100_train.pkl", "rb") as f:
     df_train = pickle.load(f)
 df_train100 = df_train[df_train.video_id.apply(lambda x: len(x) == 7)]
 
-video_df = pd.read_csv("data/epic-kitchens-100-annotations/EPIC_100_video_info.csv")
+video_df = pd.read_csv(
+    "../../data/epic-kitchens-100-annotations/EPIC_100_video_info.csv"
+)
 
 # test-train split
 participants = df_train100.participant_id.unique()
@@ -69,10 +71,10 @@ test_modified = _format_ds_(test, video_df)
 print(train_modified.info())
 print(test.info())
 
-with open("data/train100_mod.pkl", "xb") as handle:
+with open("../../data/train100_mod.pkl", "xb") as handle:
     pickle.dump(train_modified, handle)
 print("Wrote train pickle")
 
-with open("data/test100_mod.pkl", "xb") as handle:
+with open("../../data/test100_mod.pkl", "xb") as handle:
     pickle.dump(test, handle)
 print("Wrote test pickle")
