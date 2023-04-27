@@ -55,14 +55,14 @@ def main():
     video_df = pd.read_csv("data/epic-kitchens-100-annotations/EPIC_100_video_info.csv")
 
     # test-train split
-    participants = df_train100.participant_id.unique()
-    p_train, p_test = train_test_split(participants, test_size=0.15)
+    videos = df_train100.video_id.unique()
+    p_train, p_test = train_test_split(videos, test_size=0.15)
 
-    train = df_train100[df_train100["participant_id"].isin(p_train)]
-    test = df_train100[df_train100["participant_id"].isin(p_test)]
+    train = df_train100[df_train100["video_id"].isin(p_train)]
+    test = df_train100[df_train100["video_id"].isin(p_test)]
 
-    print("Train participants: ", p_train, "\n")
-    print("Test participants: ", p_test)
+    print("Train videos: ", len(p_train), "\n")
+    print("Test videos: ", len(p_test))
 
     # format DataFrames
     train_modified = _format_ds_(train, video_df)
