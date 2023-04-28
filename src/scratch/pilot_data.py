@@ -58,22 +58,31 @@ def main():
     # test-train split
     videos = df_train100.video_id.unique()
     p_train, p_test = train_test_split(videos, test_size=0.15)
+    p_train, p_val = train_test_split(p_train, test_size=0.12)
 
     train = df_train100[df_train100["video_id"].isin(p_train)]
+    val = df_train100[df_train100["video_id"].isin(p_val)]
     test = df_train100[df_train100["video_id"].isin(p_test)]
 
-    print("Train videos: ", len(p_train), "\n")
+    print("Train videos: ", len(p_train))
+    print("Validation videos:", len(p_val))
     print("Test videos: ", len(p_test))
 
     # format DataFrames
     train_modified = _format_ds_(train, video_df)
+    val_modified = _format_ds_(val, video_df)
     test_modified = _format_ds_(test, video_df)
     print(train_modified.info())
+    print(val_modified.info())
     print(test_modified.info())
 
     with open("data/train100_mod.pkl", "xb") as handle:
         pickle.dump(train_modified, handle)
     print("Wrote train pickle")
+
+    with open("data/val100_mod.pkl", "xb") as handle:
+        pickle.dump(val_modified, handle)
+    print("Wrote val pickle")
 
     with open("data/test100_mod.pkl", "xb") as handle:
         pickle.dump(test_modified, handle)
