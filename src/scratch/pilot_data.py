@@ -17,17 +17,6 @@ except ImportError or ModuleNotFoundError:
 
 def _format_ds_(data_df, video_info_df):
     df = data_df.sort_values(by=["video_id", "narration_timestamp"])
-    df = df[
-        [
-            "video_id",
-            "participant_id",
-            "narration_timestamp",
-            "narration_id",
-            "narration",
-            "verb_class",
-            "noun_class",
-        ]
-    ]
     df = pd.merge(df, video_info_df, how="left", on="video_id")
     df["start_frame"] = df.apply(
         lambda row: int(get_sec(row["narration_timestamp"]) * row["fps"]) + 1,
@@ -40,10 +29,24 @@ def _format_ds_(data_df, video_info_df):
         else row["end_frame"],
         axis=1,
     )
+    df["start_frame"] = (df["start_frame"] - 100).clip(0)
     df["root_dir"] = df.apply(
         lambda row: os.path.join(DATA_ROOT, row["participant_id"]), axis=1
     )
     df = df.drop(labels=["participant_id"], axis=1)
+    df = df[
+        [
+            "video_id",
+            "root_dir",
+            "narration_id",
+            "narration",
+            "narration_timestamp",
+            "start_frame",
+            "end_frame",
+            "verb_class",
+            "noun_class",
+        ]
+    ]
     return df
 
 
