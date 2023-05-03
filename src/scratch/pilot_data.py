@@ -29,11 +29,12 @@ def _format_ds_(data_df, video_info_df):
         else row["end_frame"],
         axis=1,
     )
-    df["start_frame"] = (df["start_frame"] - 100).clip(0)
+    df["start_frame"] = (df["start_frame"] - 100).clip(1)
     df["root_dir"] = df.apply(
         lambda row: os.path.join(DATA_ROOT, row["participant_id"]), axis=1
     )
     df = df.drop(labels=["participant_id"], axis=1)
+    df = df[df.start_frame < df.end_frame]
     df = df[
         [
             "video_id",
