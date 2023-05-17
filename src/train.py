@@ -20,7 +20,7 @@ from constants import (
     VERB_CLASSES,
 )
 from frame_loader import FrameLoader
-from models import AttentionModel, WordEmbeddings
+from models.models import AttentionModel, WordEmbeddings
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from utils import ActionMeter, get_device, get_loggers, write_pickle
@@ -126,6 +126,26 @@ class Trainer(object):
             os.path.join(path, f"checkpoint_{epoch}.pt"),
         )
 
+    def _step(self, batch):
+        """One step of the optimization process. This
+        method is run in all of train/val/test
+        """
+        feats, verb_class, noun_class = batch
+        feats = feats.to(self.device)
+        verb_class = verb_class.to(self.device)
+        noun_class = noun_class.to(self.device)
+
+        predictions_verb, predictions_noun = self.attention_model(
+            feats, verb_class, noun_class
+        )
+        batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
+        batch_acc_verb = self.compute_accuracy(predictions_verb, verb_class)
+
+        # * Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
+        batch_loss_verb = self.compute_loss(predictions_verb, verb_class)
+        batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
+        return (batch_acc_verb, batch_acc_noun, batch_loss_verb, batch_loss_noun)
+
     def _train(self):
         """Run the training loop for one epoch.
         Calculate and return the loss and accuracy.
@@ -139,29 +159,18 @@ class Trainer(object):
         train_loss_meter = ActionMeter("train loss")
         train_acc_meter = ActionMeter("train accuracy")
 
-        # loop over each minibatch
-        for feats, verb_class, noun_class in tqdm(
-            loader, desc="train_loader", total=len(loader)
-        ):
-            feats = feats.to(self.device)
-            verb_class = verb_class.to(self.device)
-            noun_class = noun_class.to(self.device)
-            n = feats.shape[0]  # batch_size
-
-            predictions_verb, predictions_noun = self.attention_model(
-                feats, verb_class, noun_class
-            )
-
-            batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
-            batch_acc_verb = self.compute_accuracy(predictions_verb, verb_class)
-
-            # * Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
-            batch_loss_verb = self.compute_loss(predictions_verb, verb_class)
-            batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
+        for batch in tqdm(loader, desc="train_loader", total=len(loader)):
+            (
+                batch_acc_verb,
+                batch_acc_noun,
+                batch_loss_verb,
+                batch_loss_noun,
+            ) = self._step(batch)
             batch_loss = batch_loss_noun + batch_loss_verb
-
-            train_acc_meter.update(batch_acc_verb, batch_acc_noun, n)
-            train_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
+            train_acc_meter.update(batch_acc_verb, batch_acc_noun, len(batch[0]))
+            train_loss_meter.update(
+                batch_loss_verb.item(), batch_loss_noun.item(), len(batch[0])
+            )
 
             # Backpropagate and optimize
             self.attention_model.zero_grad()
@@ -180,25 +189,14 @@ class Trainer(object):
         val_loss_meter = ActionMeter("val loss")
         val_acc_meter = ActionMeter("val accuracy")
 
-        # loop over each minibatch
-        for feats, verb_class, noun_class in tqdm(
-            loader, desc="val_loader", total=len(loader)
-        ):
-            feats = feats.to(self.device)
-            verb_class = verb_class.to(self.device)
-            noun_class = noun_class.to(self.device)
-            n = feats.shape[0]
-
-            predictions_verb, predictions_noun = self.attention_model(
-                feats, verb_class, noun_class
-            )
-
-            batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
-            batch_acc_verb = self.compute_accuracy(predictions_verb, verb_class)
-
-            batch_loss_verb = self.compute_loss(predictions_verb, verb_class)
-            batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
-
+        for batch in tqdm(loader, desc="val_loader", total=len(loader)):
+            n = batch[0].shape[0]  # batch size
+            (
+                batch_acc_verb,
+                batch_acc_noun,
+                batch_loss_verb,
+                batch_loss_noun,
+            ) = self._step(batch)
             val_acc_meter.update(batch_acc_verb, batch_acc_noun, n)
             val_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
         return (
