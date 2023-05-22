@@ -1,12 +1,17 @@
 import logging
 import os
+import re
 import sys
 from logging.handlers import RotatingFileHandler
+from typing import Optional
+from omegaconf import DictConfig
 
 import pandas as pd
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn as nn
+from torch.optim.lr_scheduler import MultiStepLR
+from torch.optim import SGD
 from constants import (
     NUM_NOUNS,
     NUM_VERBS,
@@ -15,6 +20,7 @@ from constants import (
     BATCH_SIZE,
     PICKLE_ROOT,
 )
+from models.tsm import TSM
 from models.models import AttentionModel, WordEmbeddings
 from tqdm import tqdm
 from frame_loader import FrameLoader
@@ -26,7 +32,7 @@ stream_handler = logging.StreamHandler(stream=sys.stdout)
 file_handler = RotatingFileHandler(
     filename="data/pilot-01/logs/train.log", maxBytes=50000, backupCount=5
 )
-logger = get_loggers(
+LOG = get_loggers(
     name=__name__,
     handlers=[(stream_handler, logging.INFO), (file_handler, logging.ERROR)],
 )
@@ -53,34 +59,84 @@ def get_word_map(file_loc):
     try:
         df = pd.read_csv(file_loc)
     except:
-        logger.error(f"Invalid file location: {file_loc}", exc_info=True)
+        LOG.error(f"invalid file location: {file_loc}", exc_info=True)
         raise FileNotFoundError(f"Invalid file location: {file_loc}")
     return df[["id", "key"]]
 
 
-class Trainer(object):
-    def __init__(self, verb_loc, noun_loc, loss_fn, save_path="data/train_run") -> None:
-        self.loss_fn = loss_fn
-        self.save_path = save_path
+def strip_model_prefix(state_dict):
+    return {re.sub("^model.", "", k): v for k, v in state_dict.items()}
 
+
+def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
+    # output_dim: int = sum([class_count for _, class_count in TASK_CLASS_COUNTS])
+    LOG.info("Assigning model state...")
+    # model = None
+    if modality in ["rgb", "flow"]:
+        if cfg.model.type == "TSM":
+            model = TSM(
+                # num_class=output_dim,
+                num_class=output_dim if output_dim > 0 else cfg.model.num_class,
+                num_segments=cfg.data.frame_count,
+                modality=cfg.modality,
+                base_model=cfg.model.backbone,
+                segment_length=cfg.data.segment_length,
+                consensus_type="avg",
+                dropout=cfg.model.dropout,
+                partial_bn=cfg.model.partial_bn,
+                pretrained=cfg.model.pretrained,
+                shift_div=cfg.model.shift_div,
+                non_local=cfg.model.non_local,
+                temporal_pool=cfg.model.temporal_pool,
+            )
+        else:
+            raise ValueError(f"Unknown model type {cfg.model.type!r}")
+        LOG.info("Assigning model weights...")
+        if cfg.model.get("weights", None) is not None:
+            if cfg.model.pretrained is not None:
+                LOG.warning(
+                    f"model.pretrained was set to {cfg.model.pretrained!r} but "
+                    f"you also specified to load weights from {cfg.model.weights}."
+                    "The latter will take precedence."
+                )
+            LOG.info(f"Loading weights from {cfg.model.weights}")
+            state_dict = torch.load(cfg.model.weights, map_location=torch.device("cpu"))
+            if "state_dict" in state_dict:
+                # Person is trying to load a checkpoint with a state_dict key, so we pull
+                # that out.
+                LOG.info("Stripping 'model' prefix from pretrained state_dict keys")
+                sd = strip_model_prefix(state_dict["state_dict"])
+                model.load_state_dict(sd)
+    elif modality == "narration":
+        model = WordEmbeddings()
+    else:
+        LOG.error(
+            f"Incorrect modality {modality} passed. Modalities must be among ['flow', 'rgb', 'narration']."
+        )
+        raise Exception("Incorrect modalities specified")
+    return model
+
+
+class Trainer(object):
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.rgb_model = load_model(self.cfg, modality="rgb")
+        self.flow_model = load_model(self.cfg, modality="flow")
+        self.narration_model = load_model(self.cfg, modality="narration")
         self.train_loader = get_dataloader()
         self.val_loader = get_dataloader(train=False)
-        self.device = get_device()
-        self.verb_map = get_word_map(verb_loc)
-        self.noun_map = get_word_map(noun_loc)
-
-        self.embedding_model = WordEmbeddings()
-
+        self.loss_fn = nn.CrossEntropyLoss()
+        channels = cfg.data.segment_length * (3 if cfg.modality == "RGB" else 2)
+        self.device = get_device()  #! Must be removed for DDP
+        self.verb_map = get_word_map(self.cfg.verb_loc)
+        self.noun_map = get_word_map(self.cfg.noun_loc)
         self.verb_embeddings = self.get_embeddings("verb")
         self.noun_embeddings = self.get_embeddings("noun")
         self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
         self.noun_one_hot = F.one_hot(torch.arange(0, NUM_NOUNS))
-
+        self.opt = self.get_optimizer()
         self.attention_model = AttentionModel(
             self.verb_embeddings, self.noun_embeddings, self.verb_map, self.noun_map
-        )
-        self.opt = torch.optim.Adam(
-            self.attention_model.parameters(), lr=1e-5, weight_decay=1e-5
         )
 
         self.train_loss_history = []
@@ -95,32 +151,35 @@ class Trainer(object):
             text = self.noun_map["key"].values.tolist()
         else:
             raise Exception('Invalid mode: choose either "noun" or "verb"')
-        embeddings = self.embedding_model(text)
+        embeddings = self.narration_model(text)
         return embeddings
 
     def get_model(self):
         return self.attention_model
 
-    def save_model(self, epoch, path=None) -> None:
-        """
-        Saves the model state and optimizer state on the dict
+    def get_optimizer(self):
+        pass
 
-        __args__:
-            epoch (int): number of epochs the model has been
-                trained for
-            path [Optional(str)]: path where to save the model.
-                Defaults to self.save_path
-        """
-        if path is None:
-            path = self.save_path
-        torch.save(
-            {
-                "epoch": epoch,
-                "model_state_dict": self.attention_model.state_dict(),
-                "optimizer_state_dict": self.opt.state_dict(),
-            },
-            os.path.join(path, f"checkpoint_{epoch}.pt"),
-        )
+    # def save_model(self, epoch, path=None) -> None:
+    #     """
+    #     Saves the model state and optimizer state on the dict
+
+    #     __args__:
+    #         epoch (int): number of epochs the model has been
+    #             trained for
+    #         path [Optional(str)]: path where to save the model.
+    #             Defaults to self.save_path
+    #     """
+    #     if path is None:
+    #         path = self.cfg.save_path
+    #     torch.save(
+    #         {
+    #             "epoch": epoch,
+    #             "model_state_dict": self.attention_model.state_dict(),
+    #             "optimizer_state_dict": self.opt.state_dict(),
+    #         },
+    #         os.path.join(path, f"checkpoint_{epoch}.pt"),
+    #     )
 
     def _step(self, batch):
         """One step of the optimization process. This
@@ -227,7 +286,7 @@ class Trainer(object):
                 and after training. Defaults to self.save_path
         """
         if model_save_path is None:
-            model_save_path = self.save_path
+            model_save_path = self.cfg.save_path
         self.attention_model.to(self.device)
         for epoch in tqdm(range(num_epochs), desc="epoch"):
             loss_verb, loss_noun, acc_verb, acc_noun = self._train()
@@ -245,24 +304,20 @@ class Trainer(object):
                 val_loss = val_loss_noun + val_loss_verb
                 self.validation_loss_history.append(val_loss)
                 self.validation_accuracy_history.append((val_verb_acc, val_noun_acc))
-                logger.info(
+                LOG.info(
                     f"Epoch:{epoch + 1}"
                     + f" Train Loss (verb/noun):{loss_verb}/{loss_noun}"
                     + f" Val Loss (verb/noun): {val_loss_verb}/{val_loss_noun}"
                     + f" Train Accuracy (verb/noun): {acc_verb:.4f}/{acc_noun:.4f}"
                     + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
                 )
-                self.save_model(epoch, path=model_save_path)
-            # print('GPU usage:')
-            # print(torch.cuda.list_gpu_processes(self.device))
-        # gc.collect()
-        # torch.cuda.empty_cache()
+                # self.save_model(epoch, path=model_save_path)
 
         # Write training stats for analysis
         train_stats = {
             "accuracy": self.train_accuracy_history,
             "loss": self.train_loss_history,
         }
-        logger.log(level=35, msg="Finished training")
+        LOG.log(level=35, msg="Finished training")
         fname = os.path.join(model_save_path, "train_stats.pkl")
         write_pickle(train_stats, fname)
