@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 from torch.optim.lr_scheduler import MultiStepLR
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 from constants import (
     NUM_NOUNS,
     NUM_VERBS,
@@ -161,7 +161,68 @@ class Trainer(object):
         return self.attention_model
 
     def get_optimizer(self):
-        pass
+        if "optimizer" in self.cfg.learning:
+            cfg = self.cfg.learning.optimizer
+            if cfg["type"] == "Adam":
+                return Adam(
+                    [
+                        {
+                            "params": filter(
+                                lambda p: p.requires_grad, self.rgb_model.parameters()
+                            ),
+                        },
+                        {
+                            "params": filter(
+                                lambda p: p.requires_grad, self.flow_model.parameters()
+                            ),
+                        },
+                        {"params": self.attention_model.parameters()},
+                    ],
+                    lr=cfg.lr,
+                )
+            elif cfg["type"] == "SGD":
+                return SGD(
+                    [
+                        {
+                            "params": filter(
+                                lambda p: p.requires_grad, self.rgb_model.parameters()
+                            ),
+                        },
+                        {
+                            "params": filter(
+                                lambda p: p.requires_grad, self.flow_model.parameters()
+                            ),
+                        },
+                        {"params": self.attention_model.parameters()},
+                    ],
+                    lr=cfg.lr,
+                    momentum=cfg.momentum,
+                )
+            else:
+                LOG.error(
+                    "Incorrect optimizer chosen. Proceeding with SGD optimizer as default"
+                )
+
+        # Default optimizer
+        lr = 0.01
+        momentum = 0.9
+        return SGD(
+            [
+                {
+                    "params": filter(
+                        lambda p: p.requires_grad, self.rgb_model.parameters()
+                    ),
+                },
+                {
+                    "params": filter(
+                        lambda p: p.requires_grad, self.flow_model.parameters()
+                    ),
+                },
+                {"params": self.attention_model.parameters()},
+            ],
+            lr=lr,
+            momentum=momentum,
+        )
 
     # def save_model(self, epoch, path=None) -> None:
     #     """
