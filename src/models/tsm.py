@@ -41,6 +41,7 @@ class TSM(nn.Module):
         fc_lr5=False,
         temporal_pool=False,
         non_local=False,
+        freeze_train_layers=True,
     ):
         super().__init__()
         self.modality = modality
@@ -59,6 +60,7 @@ class TSM(nn.Module):
         self.fc_lr5 = fc_lr5
         self.temporal_pool = temporal_pool
         self.non_local = non_local
+        self.freeze_train_layers = freeze_train_layers
 
         if not before_softmax and consensus_type != "avg":
             raise ValueError("Only avg consensus can be used after Softmax")
@@ -156,6 +158,9 @@ class TSM(nn.Module):
             self.partialBN(True)
 
     def _prepare_tsn(self, num_class):
+        if self.freeze_train_layers:
+            for param in self.base_model.parameters():
+                param.requires_grad = False
         feature_dim = getattr(
             self.base_model, self.base_model.last_layer_name
         ).in_features
@@ -241,6 +246,8 @@ class TSM(nn.Module):
                         # shutdown update in frozen mode
                         m.weight.requires_grad = False
                         m.bias.requires_grad = False
+        if self.freeze_train_layers:
+            self.base_model.requires_grade = False
 
     def partialBN(self, enable):
         self._enable_pbn = enable

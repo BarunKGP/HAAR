@@ -147,6 +147,16 @@ class Trainer(object):
         self.train_accuracy_history = []
         self.validation_accuracy_history = []
 
+    def freeze_model_layers(self, model: TSM):
+        """Freeze TSM layers and only add a
+        classification head on top
+
+        Args:
+            model (TSM): TSM model which is used
+            as a feature extractor
+        """
+        pass
+
     def get_embeddings(self, mode):
         if mode == "verb":
             text = self.verb_map["key"].values.tolist()
