@@ -27,6 +27,9 @@ from frame_loader import FrameLoader
 from utils import ActionMeter, get_device, get_loggers, write_pickle
 from torch.utils.data import DataLoader
 
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
+
 # LOGGING
 stream_handler = logging.StreamHandler(stream=sys.stdout)
 file_handler = RotatingFileHandler(
@@ -185,11 +188,16 @@ class Trainer(object):
         """One step of the optimization process. This
         method is run in all of train/val/test
         """
-        feats, verb_class, noun_class = batch
-        feats = feats.to(self.device)
-        verb_class = verb_class.to(self.device)
-        noun_class = noun_class.to(self.device)
-
+        data, verb_class, noun_class = batch
+        rgb_feats = self.rgb_model(data)
+        flow_feats = self.flow_model(data)
+        narration_feats = self.narration_model(data)
+        feats = torch.hstack((rgb_feats, flow_feats, narration_feats))
+        #! Following should be handled by DistributedSampler
+        # feats = feats.to(self.device)
+        # verb_class = verb_class.to(self.device)
+        # noun_class = noun_class.to(self.device)
+        #! Should use DDP model here
         predictions_verb, predictions_noun = self.attention_model(
             feats, verb_class, noun_class
         )
@@ -209,7 +217,7 @@ class Trainer(object):
         Returns:
             (float, float, float, float): average loss and accuracy
         """
-        self.attention_model.train()
+        # self.attention_model.train()
         loader = self.train_loader
         train_loss_meter = ActionMeter("train loss")
         train_acc_meter = ActionMeter("train accuracy")
@@ -287,7 +295,22 @@ class Trainer(object):
         """
         if model_save_path is None:
             model_save_path = self.cfg.save_path
-        self.attention_model.to(self.device)
+
+        dist.init_process_group("nccl")
+        rank = dist.get_rank()
+        LOG.info(f"Starting DDP on rank {rank}")
+
+        # DDP
+        device_id = rank % torch.cuda.device_count()
+        ddp_attention_model = DDP(
+            self.attention_model.to(device_id), device_ids=[device_id]
+        )
+        ddp_rgb_model = DDP(self.rgb_model.to(device_id), device_ids=[device_id])
+        ddp_flow_model = DDP(self.flow_model.to(device_id), device_ids=[device_id])
+        ddp_narration_model = DDP(
+            self.narration_model.to(device_id), device_ids=[device_id]
+        )
+
         for epoch in tqdm(range(num_epochs), desc="epoch"):
             loss_verb, loss_noun, acc_verb, acc_noun = self._train()
             train_loss = loss_noun + loss_verb
