@@ -88,17 +88,17 @@ class AttentionModel(nn.Module):
         A = torch.sigmoid(A)  # shape: [b, C, 100]
 
         #! class-aware attention should only be done in training, figure out different flow for testing
-        # if self.training:
-        #   A = vector_gather(A, key)
-        A = vector_gather(A, key)
-        y = torch.einsum("ijk, ik -> ij", frame_features, A)
-        y = torch.div(y, torch.sum(A, dim=-1).reshape((-1, 1)))
-        y = linear_layer(y)
-        y = self.softmax(y)
+        #! This is true for training only
+        if key is not None:
+            A = vector_gather(A, key)
+            y = torch.einsum("ijk, ik -> ij", frame_features, A)
+            y = torch.div(y, torch.sum(A, dim=-1).reshape((-1, 1)))
+            y = linear_layer(y)
+            y = self.softmax(y)
 
         return y
 
-    def __evaluate(self):
+    def _evaluate(self):
         pass
 
     def forward(self, x: torch.Tensor, verb_class, noun_class):
