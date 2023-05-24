@@ -1,4 +1,6 @@
+from typing import Literal, Union, List, Tuple
 import logging
+from logging.handlers import RotatingFileHandler
 import pickle
 import sys
 
@@ -16,12 +18,49 @@ def get_sec(time_str) -> float:
 
 def get_loggers(
     name: str,
-    fmt=logging.Formatter(
+    fmt: logging.Formatter = logging.Formatter(
         "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s"
     ),
-    handlers=[(logging.StreamHandler(stream=sys.stdout), logging.INFO)],
-):
+    filename: Union[None, str] = None,
+    filehandler: Union[None, logging.FileHandler] = None,
+    filelevel: int = logging.DEBUG,
+    handlers: List[Tuple[logging.Handler, int]] = [
+        (logging.StreamHandler(stream=sys.stdout), logging.INFO)
+    ],
+) -> logging.Logger:
+    """Utility function to provide a set of loggers. It can create simultaneous
+    logging streams, but generates a StreamHandler as default. Useful to write logs to
+    multiple places at once. Common use cases include logging to stdout as well as
+    maintaining a log file.
+
+    Args:
+        name (str): name of the logger
+        fmt (logging.Formatter, optional): log message format. Defaults to logging.
+            Formatter( "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s" ).
+        filename (Union[None, str], optional): name of the log file. If not provided, logs
+            are only written to the default handler. Defaults to None.
+        filehandler (Union[None, logging.FileHandler], optional): file handler for log files.
+            Defaults to None.
+        filelevel (int, optional): logging level for log files. Defaults to
+            logging.DEBUG.
+        handlers (List[Tuple[logging.Handler, int]], optional): all handlers for logs.
+            You can overwrite the defaults to pass additional handlers. However,
+            if you need just a file handler along with the default handler,
+            use the specific options provided. Defaults to
+            [(logging.StreamHandler(stream=sys.stdout), logging.INFO)].
+
+    Returns:
+        (logging.Logger): logger with all handlers configured
+    """
+
     logger = logging.getLogger(name)
+    if filename is not None:
+        if filehandler is None:
+            filehandler = RotatingFileHandler(
+                filename=filename, maxBytes=50000, backupCount=3
+            )
+        handlers.append((filehandler, filelevel))
+
     for handler, level in handlers:
         handler.setLevel(level)
         handler.setFormatter(fmt)

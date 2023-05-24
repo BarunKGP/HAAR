@@ -24,21 +24,14 @@ from models.tsm import TSM
 from models.models import AttentionModel, WordEmbeddings
 from tqdm import tqdm
 from frame_loader import FrameLoader
+from systems.datamodule import EpicActionRecognitionDataModule
 from utils import ActionMeter, get_device, get_loggers, write_pickle
 from torch.utils.data import DataLoader
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 
-# LOGGING
-stream_handler = logging.StreamHandler(stream=sys.stdout)
-file_handler = RotatingFileHandler(
-    filename="data/pilot-01/logs/train.log", maxBytes=50000, backupCount=5
-)
-LOG = get_loggers(
-    name=__name__,
-    handlers=[(stream_handler, logging.INFO), (file_handler, logging.ERROR)],
-)
+LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/train.log")
 
 
 def get_dataloader(train=True):
@@ -73,10 +66,10 @@ def strip_model_prefix(state_dict):
 
 def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
     # output_dim: int = sum([class_count for _, class_count in TASK_CLASS_COUNTS])
-    LOG.info("Assigning model state...")
+    LOG.debug("Assigning model state...")
     # model = None
     if modality in ["rgb", "flow"]:
-        if cfg.model.type == "TSM":
+        if cfg.model.type == "TSM":  # type: ignore
             model = TSM(
                 # num_class=output_dim,
                 num_class=output_dim if output_dim > 0 else cfg.model.num_class,
@@ -91,10 +84,11 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
                 shift_div=cfg.model.shift_div,
                 non_local=cfg.model.non_local,
                 temporal_pool=cfg.model.temporal_pool,
+                freeze_train_layers=cfg.model.get("use_pretrained", True),
             )
         else:
             raise ValueError(f"Unknown model type {cfg.model.type!r}")
-        LOG.info("Assigning model weights...")
+        LOG.debug("Assigning model weights...")
         if cfg.model.get("weights", None) is not None:
             if cfg.model.pretrained is not None:
                 LOG.warning(
@@ -112,6 +106,9 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
                 model.load_state_dict(sd)
     elif modality == "narration":
         model = WordEmbeddings()
+        if cfg.model.get("use_pretrained", True):
+            for param in model.parameters():
+                param.requires_grad = False
     else:
         LOG.error(
             f"Incorrect modality {modality} passed. Modalities must be among ['flow', 'rgb', 'narration']."
@@ -121,16 +118,15 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
 
 
 class Trainer(object):
-    def __init__(self, cfg):
+    def __init__(self, cfg: DictConfig, datamodule: EpicActionRecognitionDataModule):
         self.cfg = cfg
+        self.datamodule = datamodule
         self.rgb_model = load_model(self.cfg, modality="rgb")
         self.flow_model = load_model(self.cfg, modality="flow")
         self.narration_model = load_model(self.cfg, modality="narration")
-        self.train_loader = get_dataloader()
-        self.val_loader = get_dataloader(train=False)
         self.loss_fn = nn.CrossEntropyLoss()
-        channels = cfg.data.segment_length * (3 if cfg.modality == "RGB" else 2)
         self.device = get_device()  #! Must be removed for DDP
+
         self.verb_map = get_word_map(self.cfg.verb_loc)
         self.noun_map = get_word_map(self.cfg.noun_loc)
         self.verb_embeddings = self.get_embeddings("verb")
@@ -252,10 +248,13 @@ class Trainer(object):
         """One step of the optimization process. This
         method is run in all of train/val/test
         """
-        data, verb_class, noun_class = batch
-        rgb_feats = self.rgb_model(data)
-        flow_feats = self.flow_model(data)
-        narration_feats = self.narration_model(data)
+        images, metadata = batch
+        verb_class = metadata["verb_class"]
+        noun_class = metadata["noun_class"]
+        text = metadata["narration"]
+        rgb_feats = self.rgb_model(images)
+        flow_feats = self.flow_model(images)
+        narration_feats = self.narration_model(text)
         feats = torch.hstack((rgb_feats, flow_feats, narration_feats))
         #! Following should be handled by DistributedSampler
         # feats = feats.to(self.device)
@@ -282,7 +281,7 @@ class Trainer(object):
             (float, float, float, float): average loss and accuracy
         """
         # self.attention_model.train()
-        loader = self.train_loader
+        loader = self.datamodule.train_dataloader()
         train_loss_meter = ActionMeter("train loss")
         train_acc_meter = ActionMeter("train accuracy")
 
@@ -312,11 +311,11 @@ class Trainer(object):
 
     def _validate(self):
         self.attention_model.eval()
-        loader = self.val_loader
+        loader = self.datamodule.val_dataloader
         val_loss_meter = ActionMeter("val loss")
         val_acc_meter = ActionMeter("val accuracy")
 
-        for batch in tqdm(loader, desc="val_loader", total=len(loader)):
+        for batch in tqdm(loader, desc="val_loader", total=len(loader)):  # type: ignore
             n = batch[0].shape[0]  # batch size
             (
                 batch_acc_verb,
@@ -326,6 +325,8 @@ class Trainer(object):
             ) = self._step(batch)
             val_acc_meter.update(batch_acc_verb, batch_acc_noun, n)
             val_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
+
+        self.attention_model.train()
         return (
             val_loss_meter.avg_verb,
             val_loss_meter.avg_noun,
@@ -366,15 +367,13 @@ class Trainer(object):
 
         # DDP
         device_id = rank % torch.cuda.device_count()
-        ddp_attention_model = DDP(
-            self.attention_model.to(device_id), device_ids=[device_id]
-        )
+        ddp_model = DDP(self.attention_model.to(device_id), device_ids=[device_id])
         ddp_rgb_model = DDP(self.rgb_model.to(device_id), device_ids=[device_id])
         ddp_flow_model = DDP(self.flow_model.to(device_id), device_ids=[device_id])
         ddp_narration_model = DDP(
             self.narration_model.to(device_id), device_ids=[device_id]
         )
-
+        ddp_model.train()
         for epoch in tqdm(range(num_epochs), desc="epoch"):
             loss_verb, loss_noun, acc_verb, acc_noun = self._train()
             train_loss = loss_noun + loss_verb
