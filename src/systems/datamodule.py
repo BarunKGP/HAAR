@@ -10,7 +10,6 @@ from transforms import (
     ExtractTimeFromChannel,
     GroupCenterCrop,
     GroupMultiScaleCrop,
-    GroupNDarrayToPILImage,
     GroupNormalize,
     GroupRandomHorizontalFlip,
     GroupScale,
