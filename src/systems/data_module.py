@@ -1,11 +1,13 @@
 import logging
 from pathlib import Path
+from typing import Union
 from omegaconf import DictConfig
 
 from datasets.epic_dataset import EpicVideoDataset, EpicVideoFlowDataset
 from datasets.tsn_dataset import TsnDataset
 from torchvision.transforms import Compose
 from torch.utils.data import ConcatDataset, DataLoader
+from mp_utils import prepare_distributed_sampler
 from transforms import (
     ExtractTimeFromChannel,
     GroupCenterCrop,
@@ -73,7 +75,7 @@ class EpicActionRecognitionDataModule(object):
 
         return train_transforms, test_transforms
 
-    def train_dataloader(self):
+    def train_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.frame_count
         LOG.info(f"Training dataset: frame count {frame_count}")
         dataset = TsnDataset(
@@ -97,15 +99,25 @@ class EpicActionRecognitionDataModule(object):
             )
         LOG.info(f"Training dataset size: {len(dataset)}")
 
+        if self.cfg.learning.get("ddp", False):
+            assert rank is not None, "rank must be specified for DDP."
+            return prepare_distributed_sampler(
+                dataset=dataset,
+                rank=rank,
+                world_size=self.cfg.learning.ddp.world_size,
+                batch_size=self.cfg.learning.batch_size,
+                num_workers=self.cfg.data.worker_count,
+                pin_memory=self.cfg.data.pin_memory,
+            )
         return DataLoader(
-            dataset,
+            dataset=dataset,
             batch_size=self.cfg.learning.batch_size,
             shuffle=True,
             num_workers=self.cfg.data.worker_count,
             pin_memory=self.cfg.data.pin_memory,
         )
 
-    def val_dataloader(self):
+    def val_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.frame_count
         LOG.info(f"Validation dataset: frame count {frame_count}")
         dataset = TsnDataset(
@@ -116,15 +128,26 @@ class EpicActionRecognitionDataModule(object):
             test_mode=True,
         )
         LOG.info(f"Validation dataset size: {len(dataset)}")
+
+        if self.cfg.learning.get("ddp", False):
+            assert rank is not None, "rank must be specified for DDP."
+            return prepare_distributed_sampler(
+                dataset=dataset,
+                rank=rank,
+                world_size=self.cfg.learning.ddp.world_size,
+                batch_size=self.cfg.learning.batch_size,
+                num_workers=self.cfg.data.worker_count,
+                pin_memory=self.cfg.data.pin_memory,
+            )
         return DataLoader(
-            dataset,
+            dataset=dataset,
             batch_size=self.cfg.learning.batch_size,
             shuffle=False,
             num_workers=self.cfg.data.worker_count,
             pin_memory=self.cfg.data.pin_memory,
         )
 
-    def test_dataloader(self):
+    def test_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.get("test_frame_count", self.cfg.data.frame_count)
         LOG.info(f"Test dataset: frame count {frame_count}")
         dataset = TsnDataset(
@@ -135,8 +158,19 @@ class EpicActionRecognitionDataModule(object):
             test_mode=True,
         )
         LOG.info(f"Test dataset size: {len(dataset)}")
+
+        if self.cfg.learning.get("ddp", False):
+            assert rank is not None, "rank must be specified for DDP."
+            return prepare_distributed_sampler(
+                dataset=dataset,
+                rank=rank,
+                world_size=self.cfg.learning.ddp.world_size,
+                batch_size=self.cfg.learning.batch_size,
+                num_workers=self.cfg.data.worker_count,
+                pin_memory=self.cfg.data.pin_memory,
+            )
         return DataLoader(
-            dataset,
+            dataset=dataset,
             batch_size=self.cfg.learning.batch_size,
             shuffle=False,
             num_workers=self.cfg.data.worker_count,
