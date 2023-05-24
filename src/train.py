@@ -27,11 +27,12 @@ def main(cfg: DictConfig):
             delattr(system, "example_input_array")
         except AttributeError:
             pass
-    if cfg.learning.get("ddp", False):
+    ddp = cfg.learning.get("ddp", False)
+    if ddp:
         ddp_setup()
     LOG.info("Starting training....")
     system.training_loop(1, cfg.model.save_path)
-    if cfg.learning.get("ddp", False):
+    if ddp:
         destroy_process_group()
     LOG.info("Training completed!")
 
