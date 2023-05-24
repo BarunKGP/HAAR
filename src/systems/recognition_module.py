@@ -24,7 +24,7 @@ from models.tsm import TSM
 from models.models import AttentionModel, WordEmbeddings
 from tqdm import tqdm
 from frame_loader import FrameLoader
-from systems.datamodule import EpicActionRecognitionDataModule
+from systems.data_module import EpicActionRecognitionDataModule
 from utils import ActionMeter, get_device, get_loggers, write_pickle
 from torch.utils.data import DataLoader
 
@@ -117,7 +117,7 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
     return model
 
 
-class Trainer(object):
+class EpicActionRecognitionModule(object):
     def __init__(self, cfg: DictConfig, datamodule: EpicActionRecognitionDataModule):
         self.cfg = cfg
         self.datamodule = datamodule
