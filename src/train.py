@@ -1,5 +1,7 @@
 from omegaconf import DictConfig, OmegaConf
 import hydra
+from mp_utils import ddp_setup
+from torch.distributed import destroy_process_group
 
 from systems.recognition_module import (
     EpicActionRecognitionDataModule,
@@ -25,8 +27,12 @@ def main(cfg: DictConfig):
             delattr(system, "example_input_array")
         except AttributeError:
             pass
+    if cfg.learning.get("ddp", False):
+        ddp_setup()
     LOG.info("Starting training....")
     system.training_loop(1, cfg.model.save_path)
+    if cfg.learning.get("ddp", False):
+        destroy_process_group()
     LOG.info("Training completed!")
 
 
