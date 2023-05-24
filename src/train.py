@@ -27,7 +27,7 @@ def main(cfg: DictConfig):
             delattr(system, "example_input_array")
         except AttributeError:
             pass
-    ddp = cfg.learning.get("ddp", False)
+    ddp = cfg.trainer.get("ddp", False)
     if ddp:
         ddp_setup()
     LOG.info("Starting training....")

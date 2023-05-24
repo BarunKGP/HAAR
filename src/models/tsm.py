@@ -13,6 +13,7 @@ from ops.temporal_shift import make_temporal_shift
 from torch import nn
 from torch.nn.init import constant_, normal_
 from torch.utils import model_zoo
+from torch.utils.model_zoo import load_url
 
 LOG = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ class TSM(nn.Module):
             LOG.info("Loading kinetics pretrained weights")
             if self.modality.lower() == "rgb":
                 sd = strip_module_prefix(
-                    model_zoo.load_url(
+                    load_url(
                         "https://hanlab.mit.edu/projects/tsm/models/"
                         "TSM_kinetics_RGB_resnet50_shift8_blockres_avg_segment8_e50.pth"
                     )["state_dict"]
@@ -136,7 +137,7 @@ class TSM(nn.Module):
                 LOG.info("Loading kinetics pretrained RGB weights")
             elif self.modality.lower() == "flow":
                 sd = strip_module_prefix(
-                    model_zoo.load_url(
+                    load_url(
                         "https://hanlab.mit.edu/projects/tsm/models/"
                         "TSM_kinetics_Flow_resnet50_shift8_blockres_avg_segment8_e50.pth"
                     )["state_dict"]

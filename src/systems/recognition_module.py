@@ -1,16 +1,13 @@
-import logging
 import os
 import re
-import sys
-from logging.handlers import RotatingFileHandler
-from typing import Optional
 from omegaconf import DictConfig
 
 import pandas as pd
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
-from torch.optim.lr_scheduler import MultiStepLR
+
+# from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.optim import SGD, Adam
 from constants import (
     NUM_NOUNS,
@@ -29,26 +26,8 @@ from utils import ActionMeter, get_device, get_loggers, write_pickle
 from torch.utils.data import DataLoader
 
 from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.distributed as dist
 
 LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/train.log")
-
-
-def get_dataloader(train=True):
-    if train:
-        dataset = FrameLoader(
-            # loc = os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'),
-            loc=TRAIN_PICKLE,
-            info_loc=os.path.join(PICKLE_ROOT, "video_info.pkl"),
-        )
-    else:
-        dataset = FrameLoader(
-            # loc = os.path.join(PICKLE_ROOT, 'samples/df_train100_first10.pkl'),
-            loc=TEST_PICKLE,
-            info_loc=os.path.join(PICKLE_ROOT, "video_info.pkl"),
-        )
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
-    return dataloader
 
 
 def get_word_map(file_loc):
@@ -67,11 +46,9 @@ def strip_model_prefix(state_dict):
 def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
     # output_dim: int = sum([class_count for _, class_count in TASK_CLASS_COUNTS])
     LOG.debug("Assigning model state...")
-    # model = None
     if modality in ["rgb", "flow"]:
         if cfg.model.type == "TSM":  # type: ignore
             model = TSM(
-                # num_class=output_dim,
                 num_class=output_dim if output_dim > 0 else cfg.model.num_class,
                 num_segments=cfg.data.frame_count,
                 modality=cfg.modality,
@@ -312,6 +289,7 @@ class EpicActionRecognitionModule(object):
             # Backpropagate and optimize
             self.attention_model.zero_grad()
             batch_loss.backward()
+            # clip_grad_norm_(self.attention_model.parameters(), self.cfg.trainer.clip_grad_val)
             self.opt.step()
         return (
             train_loss_meter.avg_verb,
