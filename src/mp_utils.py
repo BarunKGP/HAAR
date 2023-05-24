@@ -1,5 +1,8 @@
+import os
+import torch
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Dataset
+from torch.distributed import init_process_group
 
 
 def prepare_distributed_sampler(
@@ -37,3 +40,8 @@ def prepare_distributed_sampler(
         sampler=sampler,
     )
     return dataloader
+
+
+def ddp_setup(backend="nccl"):
+    init_process_group(backend=backend)
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
