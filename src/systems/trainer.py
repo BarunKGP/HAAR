@@ -224,26 +224,29 @@ class Trainer(object):
             momentum=momentum,
         )
 
-    # def save_model(self, epoch, path=None) -> None:
-    #     """
-    #     Saves the model state and optimizer state on the dict
+    def save_model(self, epoch) -> None:
+        """
+        Saves the model state and optimizer state on the dict
 
-    #     __args__:
-    #         epoch (int): number of epochs the model has been
-    #             trained for
-    #         path [Optional(str)]: path where to save the model.
-    #             Defaults to self.save_path
-    #     """
-    #     if path is None:
-    #         path = self.cfg.save_path
-    #     torch.save(
-    #         {
-    #             "epoch": epoch,
-    #             "model_state_dict": self.attention_model.state_dict(),
-    #             "optimizer_state_dict": self.opt.state_dict(),
-    #         },
-    #         os.path.join(path, f"checkpoint_{epoch}.pt"),
-    #     )
+        __args__:
+            epoch (int): number of epochs the model has been
+                trained for
+        """
+        path = self.cfg.model.get(
+            "save_path", None
+        )  #! figure out correct config mapping
+        if path is None:
+            path = r"./checkpoints"
+        torch.save(
+            {
+                "epoch": epoch,
+                "rgb_model_state_dict": self.rgb_model.state_dict(),
+                "flow_model_state_dict": self.flow_model.state_dict(),
+                "attention_model_state_dict": self.attention_model.state_dict(),
+                "optimizer_state_dict": self.opt.state_dict(),
+            },
+            os.path.join(path, f"checkpoint_{epoch}.pt"),
+        )
 
     def _step(self, batch):
         """One step of the optimization process. This
@@ -395,7 +398,7 @@ class Trainer(object):
                     + f" Train Accuracy (verb/noun): {acc_verb:.4f}/{acc_noun:.4f}"
                     + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
                 )
-                # self.save_model(epoch, path=model_save_path)
+                self.save_model(epoch)
 
         # Write training stats for analysis
         train_stats = {
