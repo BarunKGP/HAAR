@@ -38,7 +38,7 @@ class EpicActionRecognitionDataModule(object):
             "rgb": Path(cfg.data.rgb.test_gulp_dir),
             "flow": Path(cfg.data.flow.test_gulp_dir),
         }
-        self.ddp = cfg.trainer.get("ddp", False)
+        self.ddp = cfg.learning.get("ddp", False)
         self.cfg = cfg
         self.rgb_train_transform, self.rgb_test_transform = self.get_transforms(
             "rgb", cfg.data.rgb
@@ -92,13 +92,13 @@ class EpicActionRecognitionDataModule(object):
         rgb_dataset = TsnDataset(
             self._get_video_dataset(self.train_gulp_dir["rgb"], modality="rgb"),
             num_segments=frame_count,
-            segment_length=self.cfg.data.segment_length,
+            segment_length=self.cfg.data.rgb.segment_length,
             transform=self.rgb_train_transform,
         )
         flow_dataset = TsnDataset(
             self._get_video_dataset(self.train_gulp_dir["flow"], modality="flow"),
             num_segments=frame_count,
-            segment_length=self.cfg.data.segment_length,
+            segment_length=self.cfg.data.flow.segment_length,
             transform=self.flow_train_transform,
         )
         if self.cfg.data.get("train_on_val", False):
@@ -111,7 +111,7 @@ class EpicActionRecognitionDataModule(object):
                             self.val_gulp_dir["rgb"], modality="rgb"
                         ),
                         num_segments=frame_count,
-                        segment_length=self.cfg.data.segment_length,
+                        segment_length=self.cfg.data.rgb.segment_length,
                         transform=self.rgb_train_transform,
                     ),
                 ]
@@ -124,7 +124,7 @@ class EpicActionRecognitionDataModule(object):
                             self.val_gulp_dir["flow"], modality="flow"
                         ),
                         num_segments=frame_count,
-                        segment_length=self.cfg.data.segment_length,
+                        segment_length=self.cfg.data.flow.segment_length,
                         transform=self.flow_train_transform,
                     ),
                 ]
@@ -158,14 +158,14 @@ class EpicActionRecognitionDataModule(object):
                 TsnDataset(
                     self._get_video_dataset(self.val_gulp_dir["rgb"], modality="rgb"),
                     num_segments=frame_count,
-                    segment_length=self.cfg.data.segment_length,
+                    segment_length=self.cfg.data.rgb.segment_length,
                     transform=self.rgb_test_transform,
                     test_mode=True,
                 ),
                 TsnDataset(
                     self._get_video_dataset(self.val_gulp_dir["flow"], modality="flow"),
                     num_segments=frame_count,
-                    segment_length=self.cfg.data.segment_length,
+                    segment_length=self.cfg.data.flow.segment_length,
                     transform=self.flow_test_transform,
                     test_mode=True,
                 ),
@@ -199,7 +199,7 @@ class EpicActionRecognitionDataModule(object):
                 TsnDataset(
                     self._get_video_dataset(self.test_gulp_dir["rgb"], modality="rgb"),
                     num_segments=frame_count,
-                    segment_length=self.cfg.data.segment_length,
+                    segment_length=self.cfg.data.rgb.segment_length,
                     transform=self.rgb_test_transform,
                     test_mode=True,
                 ),
@@ -208,7 +208,7 @@ class EpicActionRecognitionDataModule(object):
                         self.test_gulp_dir["flow"], modality="flow"
                     ),
                     num_segments=frame_count,
-                    segment_length=self.cfg.data.segment_length,
+                    segment_length=self.cfg.data.flow.segment_length,
                     transform=self.flow_test_transform,
                     test_mode=True,
                 ),
