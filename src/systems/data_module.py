@@ -173,7 +173,7 @@ class EpicActionRecognitionDataModule(object):
         )
         LOG.info(f"Validation dataset size: {len(dataset)}")
 
-        if self.cfg.learning.get("ddp", False):
+        if self.ddp:
             assert rank is not None, "rank must be specified for DDP."
             return prepare_distributed_sampler(
                 dataset=dataset,
@@ -217,7 +217,7 @@ class EpicActionRecognitionDataModule(object):
 
         LOG.info(f"Test dataset size: {len(dataset)}")
 
-        if self.cfg.learning.get("ddp", False):
+        if self.ddp:
             assert rank is not None, "rank must be specified for DDP."
             return prepare_distributed_sampler(
                 dataset=dataset,
