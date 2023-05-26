@@ -26,31 +26,41 @@ LOG = logging.getLogger(
 
 class EpicActionRecognitionDataModule(object):
     def __init__(self, cfg: DictConfig) -> None:
-        self.train_gulp_dir = Path(cfg.data.train_gulp_dir)
-        self.val_gulp_dir = Path(cfg.data.val_gulp_dir)
-        self.test_gulp_dir = Path(cfg.data.test_gulp_dir)
+        self.train_gulp_dir = {
+            "rgb": Path(cfg.data.rgb.train_gulp_dir),
+            "flow": Path(cfg.data.flow.train_gulp_dir),
+        }
+        self.val_gulp_dir = {
+            "rgb": Path(cfg.data.rgb.val_gulp_dir),
+            "flow": Path(cfg.data.flow.val_gulp_dir),
+        }
+        self.test_gulp_dir = {
+            "rgb": Path(cfg.data.rgb.test_gulp_dir),
+            "flow": Path(cfg.data.flow.test_gulp_dir),
+        }
+        self.ddp = cfg.trainer.get("ddp", False)
         self.cfg = cfg
-        self.train_transform, self.test_transform = self.get_transforms()
+        self.rgb_train_transform, self.rgb_test_transform = self.get_transforms(
+            "rgb", cfg.data.rgb
+        )
+        self.flow_train_transform, self.flow_test_transform = self.get_transforms(
+            "flow", cfg.data.flow
+        )
 
-    def get_transforms(self) -> "tuple[Compose, Compose]":
+    def get_transforms(self, modality, cfg) -> "tuple[Compose, Compose]":
         """Configure image augmentations for frames
 
         Returns:
             tuple[Compose, Compose]: train_transforms, test_transforms
         """
-        channel_count = (
-            3 if self.cfg.modality == "RGB" else 2 * self.cfg.data.segment_length
-        )
+        channel_count = 3 if modality == "rgb" else 2 * self.cfg.data.segment_length
         common_transforms = Compose(
             [
-                Stack(
-                    bgr=self.cfg.modality == "RGB"
-                    and self.cfg.data.preprocessing.get("bgr", False)
-                ),
-                ToTorchFormatTensor(div=self.cfg.data.preprocessing.rescale),
+                Stack(bgr=modality == "rgb" and cfg.preprocessing.get("bgr", False)),
+                ToTorchFormatTensor(div=cfg.preprocessing.rescale),
                 GroupNormalize(
-                    mean=list(self.cfg.data.preprocessing.mean),
-                    std=list(self.cfg.data.preprocessing.std),
+                    mean=list(cfg.preprocessing.mean),
+                    std=list(cfg.preprocessing.std),
                 ),
                 ExtractTimeFromChannel(channel_count),
             ]
@@ -58,17 +68,17 @@ class EpicActionRecognitionDataModule(object):
         train_transforms = Compose(
             [
                 GroupMultiScaleCrop(
-                    self.cfg.data.preprocessing.input_size,
-                    self.cfg.data.train_augmentation.multiscale_crop_scales,
+                    cfg.preprocessing.input_size,
+                    cfg.train_augmentation.multiscale_crop_scales,
                 ),
-                GroupRandomHorizontalFlip(is_flow=self.cfg.modality == "Flow"),
+                GroupRandomHorizontalFlip(is_flow=modality == "flow"),
                 common_transforms,
             ]
         )
         test_transforms = Compose(
             [
-                GroupScale(self.cfg.data.test_augmentation.rescale_size),
-                GroupCenterCrop(self.cfg.data.preprocessing.input_size),
+                GroupScale(cfg.test_augmentation.rescale_size),
+                GroupCenterCrop(cfg.preprocessing.input_size),
                 common_transforms,
             ]
         )
@@ -78,28 +88,51 @@ class EpicActionRecognitionDataModule(object):
     def train_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.frame_count
         LOG.info(f"Training dataset: frame count {frame_count}")
-        dataset = TsnDataset(
-            self._get_video_dataset(self.train_gulp_dir),
+
+        rgb_dataset = TsnDataset(
+            self._get_video_dataset(self.train_gulp_dir["rgb"], modality="rgb"),
             num_segments=frame_count,
             segment_length=self.cfg.data.segment_length,
-            transform=self.train_transform,
+            transform=self.rgb_train_transform,
+        )
+        flow_dataset = TsnDataset(
+            self._get_video_dataset(self.train_gulp_dir["flow"], modality="flow"),
+            num_segments=frame_count,
+            segment_length=self.cfg.data.segment_length,
+            transform=self.flow_train_transform,
         )
         if self.cfg.data.get("train_on_val", False):
             LOG.info("Training on training set + validation set")
-            dataset = ConcatDataset(
+            rgb_dataset = ConcatDataset(
                 [
-                    dataset,
+                    rgb_dataset,
                     TsnDataset(
-                        self._get_video_dataset(self.val_gulp_dir),
+                        self._get_video_dataset(
+                            self.val_gulp_dir["rgb"], modality="rgb"
+                        ),
                         num_segments=frame_count,
                         segment_length=self.cfg.data.segment_length,
-                        transform=self.train_transform,
+                        transform=self.rgb_train_transform,
                     ),
                 ]
             )
+            flow_dataset = ConcatDataset(
+                [
+                    flow_dataset,
+                    TsnDataset(
+                        self._get_video_dataset(
+                            self.val_gulp_dir["flow"], modality="flow"
+                        ),
+                        num_segments=frame_count,
+                        segment_length=self.cfg.data.segment_length,
+                        transform=self.flow_train_transform,
+                    ),
+                ]
+            )
+        dataset = ConcatDataset([rgb_dataset, flow_dataset])
         LOG.info(f"Training dataset size: {len(dataset)}")
 
-        if self.cfg.learning.get("ddp", False):
+        if self.ddp:
             assert rank is not None, "rank must be specified for DDP."
             return prepare_distributed_sampler(
                 dataset=dataset,
@@ -112,7 +145,7 @@ class EpicActionRecognitionDataModule(object):
         return DataLoader(
             dataset=dataset,
             batch_size=self.cfg.learning.batch_size,
-            shuffle=True,
+            shuffle=False,  # ? should shuffle be true
             num_workers=self.cfg.data.worker_count,
             pin_memory=self.cfg.data.pin_memory,
         )
@@ -120,12 +153,23 @@ class EpicActionRecognitionDataModule(object):
     def val_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.frame_count
         LOG.info(f"Validation dataset: frame count {frame_count}")
-        dataset = TsnDataset(
-            self._get_video_dataset(self.val_gulp_dir),
-            num_segments=frame_count,
-            segment_length=self.cfg.data.segment_length,
-            transform=self.test_transform,
-            test_mode=True,
+        dataset = ConcatDataset(
+            [
+                TsnDataset(
+                    self._get_video_dataset(self.val_gulp_dir["rgb"], modality="rgb"),
+                    num_segments=frame_count,
+                    segment_length=self.cfg.data.segment_length,
+                    transform=self.rgb_test_transform,
+                    test_mode=True,
+                ),
+                TsnDataset(
+                    self._get_video_dataset(self.val_gulp_dir["flow"], modality="flow"),
+                    num_segments=frame_count,
+                    segment_length=self.cfg.data.segment_length,
+                    transform=self.flow_test_transform,
+                    test_mode=True,
+                ),
+            ]
         )
         LOG.info(f"Validation dataset size: {len(dataset)}")
 
@@ -150,13 +194,27 @@ class EpicActionRecognitionDataModule(object):
     def test_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.get("test_frame_count", self.cfg.data.frame_count)
         LOG.info(f"Test dataset: frame count {frame_count}")
-        dataset = TsnDataset(
-            self._get_video_dataset(self.test_gulp_dir),
-            num_segments=frame_count,
-            segment_length=self.cfg.data.segment_length,
-            transform=self.test_transform,
-            test_mode=True,
+        dataset = ConcatDataset(
+            [
+                TsnDataset(
+                    self._get_video_dataset(self.test_gulp_dir["rgb"], modality="rgb"),
+                    num_segments=frame_count,
+                    segment_length=self.cfg.data.segment_length,
+                    transform=self.rgb_test_transform,
+                    test_mode=True,
+                ),
+                TsnDataset(
+                    self._get_video_dataset(
+                        self.test_gulp_dir["flow"], modality="flow"
+                    ),
+                    num_segments=frame_count,
+                    segment_length=self.cfg.data.segment_length,
+                    transform=self.flow_test_transform,
+                    test_mode=True,
+                ),
+            ]
         )
+
         LOG.info(f"Test dataset size: {len(dataset)}")
 
         if self.cfg.learning.get("ddp", False):
@@ -177,10 +235,10 @@ class EpicActionRecognitionDataModule(object):
             pin_memory=self.cfg.data.pin_memory,
         )
 
-    def _get_video_dataset(self, gulp_dir_path):
-        if self.cfg.modality.lower() == "rgb":
+    def _get_video_dataset(self, gulp_dir_path, modality):
+        if modality == "rgb":
             return EpicVideoDataset(gulp_dir_path, drop_problematic_metadata=True)
-        elif self.cfg.modality.lower() == "flow":
+        elif modality == "flow":
             return EpicVideoFlowDataset(gulp_dir_path, drop_problematic_metadata=True)
         else:
-            raise ValueError(f"Unknown modality {self.cfg.modality!r}")
+            raise ValueError(f"Unknown modality {modality!r}")
