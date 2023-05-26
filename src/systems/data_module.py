@@ -53,7 +53,7 @@ class EpicActionRecognitionDataModule(object):
         Returns:
             tuple[Compose, Compose]: train_transforms, test_transforms
         """
-        channel_count = 3 if modality == "rgb" else 2 * self.cfg.data.segment_length
+        channel_count = 3 if modality == "rgb" else 2 * cfg.segment_length
         common_transforms = Compose(
             [
                 Stack(bgr=modality == "rgb" and cfg.preprocessing.get("bgr", False)),
