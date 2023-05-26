@@ -3,7 +3,7 @@ seed: 42
 data:
   frame_count: 32
   _root_gulp_dir: ???
-  worker_count: 8
+  worker_count: 0
   pin_memory: yes
   rgb:
     segment_length: 1  # Number of (u, v) pairs in each segment
@@ -59,13 +59,14 @@ learning:
     type: StepLR
     gamma: 0.1
     epochs: [20, 40]
+  ddp:
+    world_size: 3
+    backend: nccl
   
 
 trainer:
   gradient_clip_val: 20
   max_epochs: 80
-  ddp:
-    backend: nccl
   gpus: 3
 
   # Write metrics to tensorboard logs every X iterations
