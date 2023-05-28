@@ -7,11 +7,9 @@ from natsort import natsorted
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from utils import write_pickle
-
 try:
     from constants import DATA_ROOT, PICKLE_ROOT
-    from utils import get_sec
+    from utils import get_sec, write_pickle
 except ImportError or ModuleNotFoundError:
     import sys
 
