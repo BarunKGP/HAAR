@@ -17,6 +17,8 @@ except ImportError or ModuleNotFoundError:
     from constants import DATA_ROOT
     from utils import get_sec
 
+print(PICKLE_ROOT)
+
 
 def _format_ds_(data_df, video_info_df):
     df = data_df.sort_values(by=["video_id", "narration_timestamp"])
