@@ -110,12 +110,12 @@ def find_final_frames(root=DATA_ROOT, save_loc="../../data", write_results=True)
             for video_folder in subroot.iterdir():
                 if video_folder.is_dir():
                     frames = (Path(video_folder) / "u").glob("*.jpg")
-                    frames = natsorted(frames, key=str, reverse=True)
-                    print(type(frames))
-                    print(frames)
+                    frames = [x.name for x in natsorted(frames, key=str, reverse=True)]
+                    # print(type(frames))
+                    # print(frames)
                     final_frame = [int(x) for x in regex.findall(frames[-1])]
                     final_frames[os.path.basename(video_folder)] = final_frame
-
+    print(final_frames)
     if write_results:
         write_pickle(final_frames, save_loc)
         print("Finished writing final_frames")
