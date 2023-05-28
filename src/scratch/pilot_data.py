@@ -8,13 +8,13 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 try:
-    from constants import DATA_ROOT, DATA_ROOT
+    from constants import DATA_ROOT
     from utils import get_sec, write_pickle
 except ImportError or ModuleNotFoundError:
     import sys
 
     sys.path.append(sys.path[0] + "/..")
-    from constants import DATA_ROOT, DATA_ROOT
+    from constants import DATA_ROOT
     from utils import get_sec, write_pickle
 
 print(DATA_ROOT)
