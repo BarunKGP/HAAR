@@ -14,8 +14,8 @@ except ImportError or ModuleNotFoundError:
     import sys
 
     sys.path.append(sys.path[0] + "/..")
-    from constants import DATA_ROOT
-    from utils import get_sec
+    from constants import DATA_ROOT, PICKLE_ROOT
+    from utils import get_sec, write_pickle
 
 print(PICKLE_ROOT)
 
