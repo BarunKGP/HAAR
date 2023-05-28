@@ -8,16 +8,16 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 try:
-    from constants import DATA_ROOT, PICKLE_ROOT
+    from constants import DATA_ROOT, DATA_ROOT
     from utils import get_sec, write_pickle
 except ImportError or ModuleNotFoundError:
     import sys
 
     sys.path.append(sys.path[0] + "/..")
-    from constants import DATA_ROOT, PICKLE_ROOT
+    from constants import DATA_ROOT, DATA_ROOT
     from utils import get_sec, write_pickle
 
-print(PICKLE_ROOT)
+print(DATA_ROOT)
 
 
 def _format_ds_(data_df, video_info_df):
@@ -100,7 +100,7 @@ def main():
     print("Wrote test pickle")
 
 
-def find_final_frames(root=PICKLE_ROOT, save_loc="../../data", write_results=True):
+def find_final_frames(root=DATA_ROOT, save_loc="../../data", write_results=True):
     regex = re.compile(r"\d+")
     final_frames = {}
     root = Path(root)
