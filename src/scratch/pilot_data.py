@@ -17,8 +17,6 @@ except ImportError or ModuleNotFoundError:
     from constants import DATA_ROOT
     from utils import get_sec, write_pickle
 
-print(DATA_ROOT)
-
 
 def _format_ds_(data_df, video_info_df):
     df = data_df.sort_values(by=["video_id", "narration_timestamp"])
@@ -31,7 +29,7 @@ def _format_ds_(data_df, video_info_df):
     df["end_frame"] = df.groupby("video_id")["start_frame"].shift(-1, fill_value=0)
     df["end_frame"] = df.apply(
         # lambda row: int(row["duration"] * row["fps"]) + 1
-        lambda row: final_frames[row["video_id"]] + 1
+        lambda row: final_frames[row["video_id"][0]] + 1
         if row["end_frame"] == 0
         else row["end_frame"],
         axis=1,
@@ -100,7 +98,9 @@ def main():
     print("Wrote test pickle")
 
 
-def find_final_frames(root=DATA_ROOT, save_loc="../../data", write_results=True):
+def find_final_frames(
+    root=DATA_ROOT, save_loc="../../data/end_frames.pkl", write_results=True
+):
     regex = re.compile(r"\d+")
     final_frames = {}
     root = Path(root)
@@ -111,11 +111,9 @@ def find_final_frames(root=DATA_ROOT, save_loc="../../data", write_results=True)
                 if video_folder.is_dir():
                     frames = (Path(video_folder) / "u").glob("*.jpg")
                     frames = [x.name for x in natsorted(frames, key=str, reverse=True)]
-                    print(f"{video_folder}: {len(frames)} frames")
-                    # print(frames)
                     final_frame = [int(x) for x in regex.findall(frames[0])]
                     final_frames[os.path.basename(video_folder)] = final_frame
-    print(final_frames)
+
     if write_results:
         write_pickle(final_frames, save_loc)
         print("Finished writing final_frames")
@@ -124,5 +122,4 @@ def find_final_frames(root=DATA_ROOT, save_loc="../../data", write_results=True)
 
 
 if __name__ == "__main__":
-    # main()
-    find_final_frames()
+    main()
