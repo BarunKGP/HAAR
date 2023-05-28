@@ -20,3 +20,7 @@ dependencies:
     - regex
     - sentence-transformers
     - einops
+    - natsort
+    - gulpio2
+    - hydra-core
+    - hydra-colorlog
