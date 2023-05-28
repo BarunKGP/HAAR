@@ -106,10 +106,10 @@ def find_final_frames(root=DATA_ROOT, save_loc="../../data", write_results=True)
     root = Path(root)
     for subdir in root.iterdir():
         if subdir.is_dir():
-            subroot = Path(subdir) / "flow_frames"
+            subroot = Path(subdir) / "flow_frames" / "u"
             for video_folder in subroot.iterdir():
                 if video_folder.is_dir():
-                    frames = (Path(video_folder) / "u").glob("*.jpg")
+                    frames = Path(video_folder).glob("*.jpg")
                     frames = [x.name for x in natsorted(frames, key=str, reverse=True)]
                     print(f"{os.path.basename(video_folder)}: {len(frames)} frames")
                     # print(frames)
