@@ -16,7 +16,7 @@ except ImportError or ModuleNotFoundError:
 
     sys.path.append(sys.path[0] + "/..")
     from constants import DATA_ROOT
-    from utils import get_sec, write_pickle
+    from utils import get_sec, write_pickle, read_pickle
 
 
 def _format_ds_(data_df, video_info_df, final_frames):
