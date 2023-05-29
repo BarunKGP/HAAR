@@ -29,7 +29,7 @@ def _format_ds_(data_df, video_info_df):
     df["end_frame"] = df.groupby("video_id")["start_frame"].shift(-1, fill_value=0)
     df["end_frame"] = df.apply(
         # lambda row: int(row["duration"] * row["fps"]) + 1
-        lambda row: final_frames[row["video_id"][0]] + 1
+        lambda row: final_frames[row["video_id"]][0] + 1
         if row["end_frame"] == 0
         else row["end_frame"],
         axis=1,
