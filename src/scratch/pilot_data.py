@@ -7,9 +7,10 @@ from natsort import natsorted
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+
 try:
     from constants import DATA_ROOT
-    from utils import get_sec, write_pickle
+    from utils import get_sec, write_pickle, read_pickle
 except ImportError or ModuleNotFoundError:
     import sys
 
@@ -18,10 +19,9 @@ except ImportError or ModuleNotFoundError:
     from utils import get_sec, write_pickle
 
 
-def _format_ds_(data_df, video_info_df):
+def _format_ds_(data_df, video_info_df, final_frames):
     df = data_df.sort_values(by=["video_id", "narration_timestamp"])
     df = pd.merge(df, video_info_df, how="left", on="video_id")
-    final_frames = find_final_frames()
     df["start_frame"] = df.apply(
         lambda row: int(get_sec(row["narration_timestamp"]) * row["fps"]) + 1,
         axis=1,
@@ -78,12 +78,16 @@ def main():
     print("Test videos: ", len(p_test))
 
     # format DataFrames
-    train_modified = _format_ds_(train, video_df)
-    val_modified = _format_ds_(val, video_df)
-    test_modified = _format_ds_(test, video_df)
+    final_frames = read_pickle("data/end_frames.pkl")
+    train_modified = _format_ds_(train, video_df, final_frames)
+    val_modified = _format_ds_(val, video_df, final_frames)
+    test_modified = _format_ds_(test, video_df, final_frames)
     print(train_modified.info())
     print(val_modified.info())
     print(test_modified.info())
+
+    print(train_modified.head(5))
+    print(val_modified.tail(5))
 
     with open("data/train100_mod.pkl", "xb") as handle:
         pickle.dump(train_modified, handle)
