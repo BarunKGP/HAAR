@@ -99,7 +99,7 @@ def main():
 
 
 def find_final_frames(
-    root=DATA_ROOT, save_loc="../../data/end_frames.pkl", write_results=True
+    root=DATA_ROOT, save_loc="data/end_frames.pkl", write_results=True
 ):
     regex = re.compile(r"\d+")
     final_frames = {}
