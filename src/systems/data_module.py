@@ -129,6 +129,10 @@ class EpicActionRecognitionDataModule(object):
                     ),
                 ]
             )
+        
+        rgb_0, flow_0 = rgb_dataset[0], flow_dataset[0]
+        print(f'narration id: [{rgb_0[1]['narration_id']}, {flow_0[1]['narration_id']}]')
+
         dataset = ConcatDataset([rgb_dataset, flow_dataset])
         LOG.info(f"Training dataset size: {len(dataset)}")
 
