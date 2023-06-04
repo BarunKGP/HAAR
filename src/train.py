@@ -19,12 +19,14 @@ def main(cfg: DictConfig):
     LOG.debug("EpicActionRecognitionDataModule initialized")
 
     # debug
-    loader = data_module.val_dataloader()
-    for item in loader:
-        tensors, metadata = item
-        print(tensors.size())
-        print(metadata.keys())
-        break
+    # loader = data_module.val_dataloader()
+    # # # x = loader[:9]
+    # # print(x[0].size())
+    # for item in loader:
+    #     tensors, metadata = item
+    #     print(tensors.size())
+    #     print(metadata.keys())
+    #     break
 
     # system = EpicActionRecognitionModule(cfg, data_module)
     # LOG.debug("EpicActionRecognitionSystem initialized")
