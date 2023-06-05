@@ -172,16 +172,16 @@ class EpicActionRecognitionDataModule(object):
         )
         LOG.info(f"Validation dataset size: {len(dataset)}")
 
-        # if self.ddp:
-        #     assert rank is not None, "rank must be specified for DDP."
-        #     return prepare_distributed_sampler(
-        #         dataset=dataset,
-        #         rank=rank,
-        #         world_size=self.cfg.learning.ddp.world_size,
-        #         batch_size=self.cfg.learning.batch_size,
-        #         num_workers=self.cfg.data.worker_count,
-        #         pin_memory=self.cfg.data.pin_memory,
-        #     )
+        if self.ddp:
+            assert rank is not None, "rank must be specified for DDP."
+            return prepare_distributed_sampler(
+                dataset=dataset,
+                rank=rank,
+                world_size=self.cfg.learning.ddp.world_size,
+                batch_size=self.cfg.learning.batch_size,
+                num_workers=self.cfg.data.worker_count,
+                pin_memory=self.cfg.data.pin_memory,
+            )
         return DataLoader(
             dataset=dataset,
             batch_size=self.cfg.learning.batch_size,

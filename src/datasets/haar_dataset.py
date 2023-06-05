@@ -8,8 +8,13 @@ class HaarDataset(Dataset):
     def __init__(self, rgb_dataset: TsnDataset, flow_dataset: TsnDataset) -> None:
         self.rgb_dataset = rgb_dataset
         self.flow_dataset = flow_dataset
-        self.debug()
         super().__init__()
+
+    def __getitem__(self, index):
+        return self.rgb_dataset[index], self.flow_dataset[index]
+
+    def __len__(self):
+        return min(len(self.flow_dataset), len(self.rgb_dataset))
 
     def debug(self):
         print(f"rgb_dataset = {len(self.rgb_dataset)} items")
@@ -23,9 +28,3 @@ class HaarDataset(Dataset):
                 f'{self.rgb_dataset[idx][1]["video_id"], self.rgb_dataset[idx][1]["narration_id"], self.rgb_dataset[idx][1]["verb_class"]}'
                 + f'{self.flow_dataset[idx][1]["video_id"], self.flow_dataset[idx][1]["narration_id"], self.flow_dataset[idx][1]["verb_class"]}'
             )
-
-    def __getitem__(self, index):
-        return self.rgb_dataset[index], self.flow_dataset[index]
-
-    def __len__(self):
-        return min(len(self.flow_dataset), len(self.rgb_dataset))
