@@ -4,10 +4,12 @@ from typing import List
 
 
 import numpy as np
-import torch.utils.data
+
+# import torch.utils.data
 
 from .video_dataset import VideoDataset
 from .video_dataset import VideoRecord
+
 
 LOG = logging.getLogger(__name__)
 

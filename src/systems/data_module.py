@@ -5,6 +5,7 @@ from omegaconf import DictConfig
 
 from datasets.epic_dataset import EpicVideoDataset, EpicVideoFlowDataset
 from datasets.tsn_dataset import TsnDataset
+from datasets.haar_dataset import HaarDataset
 from torchvision.transforms import Compose
 from torch.utils.data import ConcatDataset, DataLoader
 from mp_utils import prepare_distributed_sampler
@@ -129,7 +130,7 @@ class EpicActionRecognitionDataModule(object):
                     ),
                 ]
             )
-        dataset = ConcatDataset([rgb_dataset, flow_dataset])
+        dataset = HaarDataset(rgb_dataset, flow_dataset)
         LOG.info(f"Training dataset size: {len(dataset)}")
 
         if self.ddp:
@@ -153,23 +154,21 @@ class EpicActionRecognitionDataModule(object):
     def val_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.frame_count
         LOG.info(f"Validation dataset: frame count {frame_count}")
-        dataset = ConcatDataset(
-            [
-                TsnDataset(
-                    self._get_video_dataset(self.val_gulp_dir["rgb"], modality="rgb"),
-                    num_segments=frame_count,
-                    segment_length=self.cfg.data.rgb.segment_length,
-                    transform=self.rgb_test_transform,
-                    test_mode=True,
-                ),
-                TsnDataset(
-                    self._get_video_dataset(self.val_gulp_dir["flow"], modality="flow"),
-                    num_segments=frame_count,
-                    segment_length=self.cfg.data.flow.segment_length,
-                    transform=self.flow_test_transform,
-                    test_mode=True,
-                ),
-            ]
+        dataset = HaarDataset(
+            TsnDataset(
+                self._get_video_dataset(self.val_gulp_dir["rgb"], modality="rgb"),
+                num_segments=frame_count,
+                segment_length=self.cfg.data.rgb.segment_length,
+                transform=self.rgb_test_transform,
+                test_mode=True,
+            ),
+            TsnDataset(
+                self._get_video_dataset(self.val_gulp_dir["flow"], modality="flow"),
+                num_segments=frame_count,
+                segment_length=self.cfg.data.flow.segment_length,
+                transform=self.flow_test_transform,
+                test_mode=True,
+            ),
         )
         LOG.info(f"Validation dataset size: {len(dataset)}")
 
@@ -194,25 +193,21 @@ class EpicActionRecognitionDataModule(object):
     def test_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.get("test_frame_count", self.cfg.data.frame_count)
         LOG.info(f"Test dataset: frame count {frame_count}")
-        dataset = ConcatDataset(
-            [
-                TsnDataset(
-                    self._get_video_dataset(self.test_gulp_dir["rgb"], modality="rgb"),
-                    num_segments=frame_count,
-                    segment_length=self.cfg.data.rgb.segment_length,
-                    transform=self.rgb_test_transform,
-                    test_mode=True,
-                ),
-                TsnDataset(
-                    self._get_video_dataset(
-                        self.test_gulp_dir["flow"], modality="flow"
-                    ),
-                    num_segments=frame_count,
-                    segment_length=self.cfg.data.flow.segment_length,
-                    transform=self.flow_test_transform,
-                    test_mode=True,
-                ),
-            ]
+        dataset = HaarDataset(
+            TsnDataset(
+                self._get_video_dataset(self.test_gulp_dir["rgb"], modality="rgb"),
+                num_segments=frame_count,
+                segment_length=self.cfg.data.rgb.segment_length,
+                transform=self.rgb_test_transform,
+                test_mode=True,
+            ),
+            TsnDataset(
+                self._get_video_dataset(self.test_gulp_dir["flow"], modality="flow"),
+                num_segments=frame_count,
+                segment_length=self.cfg.data.flow.segment_length,
+                transform=self.flow_test_transform,
+                test_mode=True,
+            ),
         )
 
         LOG.info(f"Test dataset size: {len(dataset)}")
