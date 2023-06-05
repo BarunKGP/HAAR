@@ -20,17 +20,8 @@ class HaarDataset(Dataset):
         )
         for idx in random_idx:
             print(
-                f'{
-                    self.rgb_dataset[idx][1]["video_id"], 
-                    self.rgb_dataset[idx][1]["narration_id"], 
-                    self.rgb_dataset[idx][1]["verb_class"]
-                }' 
-                + 
-                f'{
-                    self.flow_dataset[idx][1]["video_id"], 
-                    self.flow_dataset[idx][1]["narration_id"], 
-                    self.flow_dataset[idx][1]["verb_class"]
-                }'
+                f'{self.rgb_dataset[idx][1]["video_id"], self.rgb_dataset[idx][1]["narration_id"], self.rgb_dataset[idx][1]["verb_class"]}'
+                + f'{self.flow_dataset[idx][1]["video_id"], self.flow_dataset[idx][1]["narration_id"], self.flow_dataset[idx][1]["verb_class"]}'
             )
 
     def __getitem__(self, index):
