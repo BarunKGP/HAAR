@@ -19,7 +19,7 @@ def main(cfg: DictConfig):
     LOG.debug("EpicActionRecognitionDataModule initialized")
 
     # debug
-    # loader = data_module.val_dataloader()
+    loader = data_module.train_dataloader()
     # # # x = loader[:9]
     # # print(x[0].size())
     # for item in loader:
