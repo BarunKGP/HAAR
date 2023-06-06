@@ -5,6 +5,8 @@ data:
   _root_gulp_dir: ???
   worker_count: 0
   pin_memory: yes
+  verb_loc: ???
+  noun_loc: ???
   rgb:
     segment_length: 1  # Number of (u, v) pairs in each segment
     train_gulp_dir: ${data._root_gulp_dir}/rgb_train

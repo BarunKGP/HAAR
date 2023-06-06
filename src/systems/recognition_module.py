@@ -102,8 +102,8 @@ class EpicActionRecognitionModule(object):
         self.test_loader = datamodule.test_dataloader()
         self.loss_fn = nn.CrossEntropyLoss()
 
-        self.verb_map = get_word_map(self.cfg.verb_loc)
-        self.noun_map = get_word_map(self.cfg.noun_loc)
+        self.verb_map = get_word_map(self.cfg.data.verb_loc)
+        self.noun_map = get_word_map(self.cfg.data.noun_loc)
         self.verb_embeddings = self.get_embeddings("verb")
         self.noun_embeddings = self.get_embeddings("noun")
         self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
