@@ -59,9 +59,6 @@ learning:
     type: StepLR
     gamma: 0.1
     epochs: [20, 40]
-  ddp:
-    world_size: 3
-    backend: nccl
   
 
 trainer:
