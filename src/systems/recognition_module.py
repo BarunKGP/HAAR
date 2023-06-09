@@ -102,6 +102,7 @@ class EpicActionRecognitionModule(object):
         self.train_loader = datamodule.train_dataloader()
         self.val_loader = datamodule.val_dataloader()
         self.test_loader = datamodule.test_dataloader()
+        LOG.info("Dataloaders initialized")
         self.loss_fn = nn.CrossEntropyLoss()
 
         self.verb_map = get_word_map(self.cfg.data.verb_loc)
@@ -118,7 +119,7 @@ class EpicActionRecognitionModule(object):
         self.rgb_model = load_model(self.cfg, modality="rgb")
         self.flow_model = load_model(self.cfg, modality="flow")
         self.narration_model = load_model(self.cfg, modality="narration")
-        print(f"narration model = {self.narration_model}")
+        LOG.info(f"narration model = {self.narration_model}")
 
         self.train_loss_history = []
         self.validation_loss_history = []

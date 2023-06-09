@@ -27,8 +27,8 @@ def main(cfg: DictConfig):
     #     print(metadata.keys())
     #     break
 
-    # system = EpicActionRecognitionModule(cfg, data_module)
-    # LOG.debug("EpicActionRecognitionSystem initialized")
+    system = EpicActionRecognitionModule(cfg, data_module)
+    LOG.debug("EpicActionRecognitionSystem initialized")
     # if not cfg.get("log_graph", True):
     #     # MTRN can't be traced due to the model stochasticity so causes a JIT tracer
     #     # error, we allow you to prevent the tracer from running to log the graph when
