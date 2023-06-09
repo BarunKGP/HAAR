@@ -86,6 +86,8 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
         if cfg.model.get("use_pretrained", True):
             for param in model.parameters():
                 param.requires_grad = False
+        LOG.info("Word Embedding model finalized")
+        print(model)
     else:
         LOG.error(
             f"Incorrect modality {modality} passed. Modalities must be among ['flow', 'rgb', 'narration']."
