@@ -2,11 +2,11 @@ seed: 42
 
 data:
   frame_count: 32
-  _root_gulp_dir: ???
+  _root_gulp_dir: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/gulp
   worker_count: 0
   pin_memory: yes
-  verb_loc: ???
-  noun_loc: ???
+  verb_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_verb_classes.csv
+  noun_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_noun_classes.csv
   rgb:
     segment_length: 1  # Number of (u, v) pairs in each segment
     train_gulp_dir: ${data._root_gulp_dir}/rgb_train
@@ -42,7 +42,7 @@ data:
 model:
   type: TSM
   backbone: resnet50
-  weights: ???
+  weights: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_rgb.ckpt
   dropout: 0.7
   partial_bn: yes
   shift_div: 8
