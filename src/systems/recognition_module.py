@@ -86,8 +86,6 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
         if cfg.model.get("use_pretrained", True):
             for param in model.parameters():
                 param.requires_grad = False
-        LOG.info("Word Embedding model finalized")
-        print(model)
     else:
         LOG.error(
             f"Incorrect modality {modality} passed. Modalities must be among ['flow', 'rgb', 'narration']."
@@ -105,6 +103,9 @@ class EpicActionRecognitionModule(object):
         LOG.info("Dataloaders initialized")
         self.loss_fn = nn.CrossEntropyLoss()
 
+        self.narration_model = load_model(self.cfg, modality="narration")
+        LOG.info(f"narration model = {self.narration_model}")
+
         self.verb_map = get_word_map(self.cfg.data.verb_loc)
         self.noun_map = get_word_map(self.cfg.data.noun_loc)
         self.verb_embeddings = self.get_embeddings("verb")
@@ -118,8 +119,6 @@ class EpicActionRecognitionModule(object):
         )
         self.rgb_model = load_model(self.cfg, modality="rgb")
         self.flow_model = load_model(self.cfg, modality="flow")
-        self.narration_model = load_model(self.cfg, modality="narration")
-        LOG.info(f"narration model = {self.narration_model}")
 
         self.train_loss_history = []
         self.validation_loss_history = []
