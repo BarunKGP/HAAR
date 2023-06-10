@@ -51,9 +51,9 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
             model = TSM(
                 num_class=output_dim if output_dim > 0 else cfg.model.num_class,
                 num_segments=cfg.data.frame_count,
-                modality=cfg.modality,
+                modality=modality,
                 base_model=cfg.model.backbone,
-                segment_length=cfg.data.segment_length,
+                segment_length=cfg["data"][modality]["segment_length"],
                 consensus_type="avg",
                 dropout=cfg.model.dropout,
                 partial_bn=cfg.model.partial_bn,
@@ -83,7 +83,8 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
                 model.load_state_dict(sd)
     elif modality == "narration":
         model = WordEmbeddings()
-        if cfg.model.get("use_pretrained", True):
+        narr_cfg = cfg.model.get("narration_model", None)
+        if narr_cfg and narr_cfg.get("pretrained", False):
             for param in model.parameters():
                 param.requires_grad = False
     else:
