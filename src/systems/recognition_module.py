@@ -100,11 +100,14 @@ class EpicActionRecognitionModule(object):
         self.train_loader = datamodule.train_dataloader()
         self.val_loader = datamodule.val_dataloader()
         self.test_loader = datamodule.test_dataloader()
-        LOG.info("Dataloaders initialized")
         self.loss_fn = nn.CrossEntropyLoss()
 
         self.narration_model = load_model(self.cfg, modality="narration")
-        LOG.info(f"narration model = {self.narration_model}")
+        self.ddp = self.cfg.learning.get("ddp", False)
+        if self.ddp:
+            self.device = int(os.environ["LOCAL_RANK"])
+        else:
+            self.device = get_device()
 
         self.verb_map = get_word_map(self.cfg.data.verb_loc)
         self.noun_map = get_word_map(self.cfg.data.noun_loc)
@@ -112,7 +115,6 @@ class EpicActionRecognitionModule(object):
         self.noun_embeddings = self.get_embeddings("noun")
         self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
         self.noun_one_hot = F.one_hot(torch.arange(0, NUM_NOUNS))
-        self.opt = self.get_optimizer()
 
         self.attention_model = AttentionModel(
             self.verb_embeddings, self.noun_embeddings, self.verb_map, self.noun_map
@@ -120,16 +122,12 @@ class EpicActionRecognitionModule(object):
         self.rgb_model = load_model(self.cfg, modality="rgb")
         self.flow_model = load_model(self.cfg, modality="flow")
 
+        self.opt = self.get_optimizer()
+
         self.train_loss_history = []
         self.validation_loss_history = []
         self.train_accuracy_history = []
         self.validation_accuracy_history = []
-
-        self.ddp = self.cfg.learning.get("ddp", False)
-        if self.ddp:
-            self.device = int(os.environ["LOCAL_RANK"])
-        else:
-            self.device = get_device()
 
     def get_embeddings(self, mode):
         if mode == "verb":
