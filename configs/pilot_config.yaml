@@ -49,6 +49,8 @@ model:
   non_local: False
   temporal_pool: False
   num_class: 1024
+  narration_model:
+    pretrained: True
 
 learning:
   batch_size: 64
