@@ -9,7 +9,7 @@ from systems.recognition_module import (
 )
 from utils import get_loggers
 
-LOG = get_loggers(name=__name__, filename="../data/pilot-01/logs/train.log")
+LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/train.log")
 
 
 @hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
