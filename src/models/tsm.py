@@ -72,41 +72,17 @@ class TSM(nn.Module):
         LOG.info(
             f"""
 
-
-
     Initializing {self.__class__.__name__} with base model: {base_model}.
-
-
-
-
-
 
 
     {self.__class__.__name__} Configuration:
 
-
-
         input_modality:     {self.modality}
-
-
-
         num_segments:       {self.num_segments}
-
-
-
         segment_length:     {self.segment_length}
-
-
-
         consensus_module:   {self.consensus_type}
-
-
-
         dropout_ratio:      {self.dropout}
-
-
-
-            """
+        """
         )
 
         self._prepare_base_model(base_model)
@@ -119,7 +95,7 @@ class TSM(nn.Module):
         self.consensus = ConsensusModule(consensus_type)
 
         if self.pretrained == "kinetics":
-            LOG.info("Loading kinetics pretrained weights")
+            LOG.info("Loading kinetics pretrained RGB weights")
             if self.modality.lower() == "rgb":
                 sd = strip_module_prefix(
                     load_url(

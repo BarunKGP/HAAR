@@ -42,7 +42,6 @@ data:
 model:
   type: TSM
   backbone: resnet50
-  pretrained: kinetics
   weights: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_rgb.ckpt
   dropout: 0.7
   partial_bn: yes
