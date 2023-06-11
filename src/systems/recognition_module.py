@@ -65,7 +65,6 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
             )
         else:
             raise ValueError(f"Unknown model type {cfg.model.type!r}")
-        LOG.info(model)
         LOG.debug("Assigning model weights...")
         if cfg.model.get("weights", None) is not None:
             if cfg.model.pretrained is not None:
@@ -81,8 +80,15 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
                 # that out.
                 LOG.info("Stripping 'model' prefix from pretrained state_dict keys")
                 sd = strip_model_prefix(state_dict["state_dict"])
-                LOG.info(sd['new_fc.weight'].shape, sd['new_fc.bias'].shape)
-                model.load_state_dict(sd)
+
+                # Change shape of final linear layer
+                sd["new_fc.weight"] = torch.rand([2048, 1024], requires_grad=True)
+                sd["new_fc.bias"] = torch.rand(2048, requires_grad=True)
+                missing, unexpected = model.load_state_dict(sd, strict=False)
+                if len(missing) > 0:
+                    LOG.warning(f"Missing keys in checkpoint: {missing}")
+                if len(unexpected) > 0:
+                    LOG.warning(f"Unexpected keys in checkpoint: {unexpected}")
     elif modality == "narration":
         model = WordEmbeddings()
         narr_cfg = cfg.model.get("narration_model", None)
