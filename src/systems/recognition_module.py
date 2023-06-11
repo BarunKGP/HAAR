@@ -190,7 +190,7 @@ class EpicActionRecognitionModule(object):
                         },
                         {"params": att_model.parameters()},
                     ],
-                    lr=cfg.lr,
+                    lr=self.cfg.learning.lr,
                     momentum=cfg.momentum,
                 )
             else:
