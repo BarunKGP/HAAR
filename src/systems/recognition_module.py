@@ -81,7 +81,7 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
                 # that out.
                 LOG.info("Stripping 'model' prefix from pretrained state_dict keys")
                 sd = strip_model_prefix(state_dict["state_dict"])
-                LOG.info(sd["new_fc"])
+                LOG.info(sd['new_fc.weight'].shape, sd['new_fc.bias'].shape)
                 model.load_state_dict(sd)
     elif modality == "narration":
         model = WordEmbeddings()
