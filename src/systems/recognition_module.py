@@ -73,8 +73,9 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
                     f"you also specified to load weights from {cfg.model.weights}."
                     "The latter will take precedence."
                 )
-            LOG.info(f"Loading weights from {cfg.model.weights}")
-            state_dict = torch.load(cfg.model.weights, map_location=torch.device("cpu"))
+            weight_loc = cfg.model.weights[modality]
+            LOG.info(f"Loading weights from {weight_loc}")
+            state_dict = torch.load(weight_loc, map_location=torch.device("cpu"))
             if "state_dict" in state_dict:
                 # Person is trying to load a checkpoint with a state_dict key, so we pull
                 # that out.
