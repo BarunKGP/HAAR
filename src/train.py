@@ -16,7 +16,6 @@ LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/train.log")
 def main(cfg: DictConfig):
     LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
     data_module = EpicActionRecognitionDataModule(cfg)
-    print(cfg.data.rgb.train_gulp_dir)
     LOG.debug("EpicActionRecognitionDataModule initialized")
 
     # debug
