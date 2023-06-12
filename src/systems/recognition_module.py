@@ -114,7 +114,7 @@ class EpicActionRecognitionModule(object):
         else:
             self.device = get_device()
             rank = None
-
+        print(f"self.device = {self.device}")
         self.train_loader = datamodule.train_dataloader(rank=rank)
         self.val_loader = datamodule.val_dataloader(rank=rank)
         self.test_loader = datamodule.test_dataloader(rank=rank)
@@ -269,6 +269,7 @@ class EpicActionRecognitionModule(object):
         text = metadata["narration"]
         rgb_images = rgb_images.to(self.device)
         flow_images = flow_images.to(self.device)
+        print("debug:", rgb_images.device)
         rgb_feats = self.rgb_model(rgb_images)
         flow_feats = self.flow_model(flow_images)
         narration_feats = self.narration_model(text)
