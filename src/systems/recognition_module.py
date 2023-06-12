@@ -65,6 +65,8 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
             )
         else:
             raise ValueError(f"Unknown model type {cfg.model.type!r}")
+        if modality == "flow":
+            LOG.info(model)
         LOG.debug("Assigning model weights...")
         if cfg.model.get("weights", None) is not None:
             if cfg.model.pretrained is not None:
