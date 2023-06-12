@@ -22,8 +22,9 @@ def main(cfg: DictConfig):
     loader = data_module.val_dataloader()
     for item in loader:
         tensors, metadata = item
-        print(tensors.size())
-        print(metadata.keys())
+        print(len(item))
+        print(len(tensors))
+        print(len(metadata))
         break
 
     # system = EpicActionRecognitionModule(cfg, data_module)
