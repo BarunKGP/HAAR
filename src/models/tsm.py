@@ -319,8 +319,9 @@ class TSM(nn.Module):
 
     def forward(self, input, no_reshape=False):
         if not no_reshape:
-            sample_len = (3 if self.modality == "RGB" else 2) * self.segment_length
-            print(f"changing view to: {(-1, sample_len) + input.size()[-2:]}")
+            sample_len = (
+                3 if self.modality.upper() == "RGB" else 2
+            ) * self.segment_length
             base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
         else:
             base_out = self.base_model(input)
