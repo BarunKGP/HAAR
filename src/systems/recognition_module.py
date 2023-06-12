@@ -330,7 +330,7 @@ class EpicActionRecognitionModule(object):
             predictions = self.verb_model(feats, word_class)
         else:
             predictions = self.noun_model(feats, word_class)
-        predictions = predictions.detach()
+        predictions = predictions.cpu()
         batch_acc = self.compute_accuracy(predictions, word_class)
         batch_loss = self.compute_loss(predictions, word_class)
 
@@ -338,10 +338,10 @@ class EpicActionRecognitionModule(object):
         return batch_acc, batch_loss
 
     def compute_accuracy(self, preds, labels):
-        print(f"preds device = {preds.device}, labels device = {labels.device}")
+        # print(f"preds device = {preds.device}, labels device = {labels.device}")
         with torch.no_grad():
             preds = torch.argmax(preds, dim=1)
-            correct = (preds == labels.cpu()).float().sum().item()
+            correct = (preds == labels).float().sum().item()
             batch_accuracy = correct / len(preds)
         return batch_accuracy
 
