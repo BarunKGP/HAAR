@@ -107,18 +107,19 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
 class EpicActionRecognitionModule(object):
     def __init__(self, cfg: DictConfig, datamodule: EpicActionRecognitionDataModule):
         self.cfg = cfg
-        self.train_loader = datamodule.train_dataloader()
-        self.val_loader = datamodule.val_dataloader()
-        self.test_loader = datamodule.test_dataloader()
         self.loss_fn = nn.CrossEntropyLoss()
-
-        self.narration_model = load_model(self.cfg, modality="narration")
         self.ddp = self.cfg.learning.get("ddp", False)
         if self.ddp:
-            self.device = int(os.environ["LOCAL_RANK"])
+            rank = self.device = int(os.environ["LOCAL_RANK"])
         else:
             self.device = get_device()
+            rank = None
 
+        self.train_loader = datamodule.train_dataloader(rank=rank)
+        self.val_loader = datamodule.val_dataloader(rank=rank)
+        self.test_loader = datamodule.test_dataloader(rank=rank)
+
+        self.narration_model = load_model(self.cfg, modality="narration")
         self.verb_map = get_word_map(self.cfg.data.verb_loc)
         self.noun_map = get_word_map(self.cfg.data.noun_loc)
         self.verb_embeddings = self.get_embeddings("verb")
