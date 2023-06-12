@@ -381,7 +381,6 @@ class EpicActionRecognitionModule(object):
             model_save_path = self.cfg.save_path  # ? configure a default save_path?
 
         self.load_models_to_device()
-        LOG.info(f"verb_model device = {self.verb_model.device}")
         for epoch in tqdm(range(num_epochs), desc="training_verbs"):
             if self.ddp:
                 self.train_loader.sampler.set_epoch(epoch)
