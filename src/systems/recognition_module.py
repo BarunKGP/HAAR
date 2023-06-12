@@ -274,13 +274,6 @@ class EpicActionRecognitionModule(object):
             train_acc_meter.update(batch_acc, len(batch[0]))
             train_loss_meter.update(batch_loss.item(), len(batch[0]))
 
-            # Backpropagate and optimize
-            self.attention_model.zero_grad()
-            batch_loss.backward()
-            clip_grad_norm_(
-                self.attention_model.parameters(), self.cfg.trainer.gradient_clip_val
-            )
-            self.opt.step()
         return (
             train_loss_meter.avg_verb,
             train_loss_meter.avg_noun,
@@ -334,8 +327,16 @@ class EpicActionRecognitionModule(object):
         batch_acc = self.compute_accuracy(predictions, word_class)
         batch_loss = self.compute_loss(predictions, word_class)
 
-        print(f"accuracy types: batch_loss: {type(batch_loss)}, batch_acc: {batch_acc}")
+        print(
+            f"accuracy types: batch_loss: {type(batch_loss), batch_loss}, batch_acc: {type(batch_acc)}"
+        )
         return batch_acc, batch_loss
+
+    def backprop(self, model: AttentionModel, loss):
+        model.zero_grad()
+        loss.backward()
+        clip_grad_norm_(model.parameters(), self.cfg.trainer.gradient_clip_val)
+        self.opt.step()
 
     def compute_accuracy(self, preds, labels):
         # print(f"preds device = {preds.device}, labels device = {labels.device}")
@@ -386,6 +387,7 @@ class EpicActionRecognitionModule(object):
             train_loss_verb, _, train_acc_verb, _ = self._train(
                 self.train_loader, "verb_class"
             )
+            self.backprop(self.verb_model, train_loss_verb)
             self.train_loss_history.append(train_loss_verb)
             self.train_accuracy_history.append(train_acc_verb)
 
