@@ -46,7 +46,7 @@ def main(cfg: DictConfig):
     system.training_loop(1, cfg.model.save_path)
     if ddp:
         destroy_process_group()
-    print("Training completed!")
+    LOG.info("Training completed!")
     sys.exit(0)  # required to prevent CPU lock (soft bug)
 
 
