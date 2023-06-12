@@ -249,14 +249,14 @@ class EpicActionRecognitionModule(object):
         """One step of the optimization process. This
         method is run in all of train/val/test
         """
-        images, metadata = batch
-        print(f"batch size: {len(batch)}")
-        print(f"batch[0] = {len(batch[0])}")
+        rgb, flow = batch
+        rgb_images, metadata = rgb  # rgb and flow metadata are the same
+        flow_images = flow[0]
         verb_class = metadata["verb_class"]
         noun_class = metadata["noun_class"]
         text = metadata["narration"]
-        rgb_feats = self.rgb_model(images)
-        flow_feats = self.flow_model(images)
+        rgb_feats = self.rgb_model(rgb_images)
+        flow_feats = self.flow_model(flow_images)
         narration_feats = self.narration_model(text)
         feats = torch.hstack((rgb_feats, flow_feats, narration_feats))
         #! Following should be handled by DistributedSampler
