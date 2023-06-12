@@ -26,16 +26,12 @@ class WordEmbeddings(nn.Module):
 
 # ATTENTION MODEL
 class AttentionModel(nn.Module):
-    def __init__(self, verb_embeddings, noun_embeddings, verb_map, noun_map):
+    def __init__(self, embeddings, word_map):
         super().__init__()
 
-        self.verb_embeddings = verb_embeddings
-        self.noun_embeddings = noun_embeddings
-        self.verb_map = verb_map
-        self.noun_map = noun_map
-
-        self.C_verb = len(self.verb_map)
-        self.C_noun = len(self.noun_map)
+        self.embeddings = embeddings
+        self.word_map = word_map
+        self.cardinality = len(self.word_map)
         self.device = get_device()
 
         self.layer1 = nn.Sequential(
@@ -44,13 +40,13 @@ class AttentionModel(nn.Module):
             nn.Dropout(0.5),
             nn.Linear(MULTIMODAL_FEATURE_SIZE, WORD_EMBEDDING_SIZE),
         )
-        self.linear_verb = nn.Linear(WORD_EMBEDDING_SIZE, self.C_verb, bias=True)
-        self.linear_noun = nn.Linear(WORD_EMBEDDING_SIZE, self.C_noun, bias=True)
+        self.linear_layer = nn.Linear(WORD_EMBEDDING_SIZE, self.cardinality, bias=True)
         self.softmax = nn.Softmax(dim=-1)
 
-    def _predictions(self, frame_features, key, mode) -> torch.Tensor:
+    def _predictions(self, frame_features, key):
         """Takes the frame_features and returns the predictions
         for action (verb/noun)
+
         ------ Shape logic ------
         f = [b, D, 100]
         w1 = [b, C, D]
@@ -65,7 +61,6 @@ class AttentionModel(nn.Module):
             frame_features (torch.Tensor): the multimodal features
             key (torch.Tensor): tensor of verb/noun class indices
                 used to collect class-aware attention
-            mode (str): whether to predict verb or noun
 
         Raises:
             Exception: Invalid mode. It has to be 'verb' or 'noun'
@@ -74,37 +69,28 @@ class AttentionModel(nn.Module):
             torch.Tensor: prediction probabilities for each verb/noun
                 class
         """
-        if mode == "verb":
-            embeddings = self.verb_embeddings.to(self.device)
-            linear_layer = self.linear_verb
-        elif mode == "noun":
-            embeddings = self.noun_embeddings.to(self.device)
-            linear_layer = self.linear_noun
-        else:
-            raise Exception('Invalid mode: choose either "noun" or "verb"')
-        if embeddings.ndim == 1:
-            embeddings = embeddings[:, None]  # Convert to shape [b, K]
-        A = torch.matmul(embeddings, frame_features)
-        A = torch.sigmoid(A)  # shape: [b, C, 100]
+        if self.embeddings.ndim == 1:
+            self.embeddings = self.embeddings[:, None]  # Convert to shape [b, K]
+        A = torch.sigmoid(
+            torch.matmul(self.embeddings, frame_features)
+        )  # shape: [b, C, 100]
 
         #! class-aware attention should only be done in training, figure out different flow for testing
         #! This is true for training only
+        y = None
         if key is not None:
             A = vector_gather(A, key)
             y = torch.einsum("ijk, ik -> ij", frame_features, A)
             y = torch.div(y, torch.sum(A, dim=-1).reshape((-1, 1)))
-            y = linear_layer(y)
+            y = self.linear_layer(y)
             y = self.softmax(y)
-
+        del A
         return y
 
     def _evaluate(self):
         pass
 
-    def forward(self, x: torch.Tensor, verb_class, noun_class):
+    def forward(self, x: torch.Tensor, label: int):
         x = x[:, None, :].to(torch.float32)
         x = self.layer1(x).permute((0, 2, 1))
-        verb_predictions = self._predictions(x, verb_class, "verb")
-        noun_predictions = self._predictions(x, noun_class, "noun")
-
-        return verb_predictions, noun_predictions
+        return self._predictions(x, label)

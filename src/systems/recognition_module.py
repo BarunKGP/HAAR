@@ -127,9 +127,9 @@ class EpicActionRecognitionModule(object):
         self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
         self.noun_one_hot = F.one_hot(torch.arange(0, NUM_NOUNS))
 
-        self.attention_model = AttentionModel(
-            self.verb_embeddings, self.noun_embeddings, self.verb_map, self.noun_map
-        )
+        #! Should be broken into noun and verb models
+        self.attention_model = AttentionModel(self.verb_embeddings, self.verb_map)
+        # * self.noun_model = AttentionModel(self.noun_embeddings, self.noun_map)
         self.rgb_model = load_model(self.cfg, modality="rgb")
         self.flow_model = load_model(self.cfg, modality="flow")
 
@@ -264,13 +264,13 @@ class EpicActionRecognitionModule(object):
         noun_class = metadata["noun_class"]
         text = metadata["narration"]
         rgb_feats = self.rgb_model(rgb_images.to(self.device))
-        flow_feats = self.flow_model(flow_images)
+        flow_feats = self.flow_model(flow_images.to(self.device))
         narration_feats = self.narration_model(text)
         feats = torch.hstack((rgb_feats, flow_feats, narration_feats))
         #! Following should be handled by DistributedSampler
-        feats = feats.to(self.device)
-        verb_class = verb_class.to(self.device)
-        noun_class = noun_class.to(self.device)
+        # feats = feats.to(self.device)
+        # verb_class = verb_class.to(self.device)
+        # noun_class = noun_class.to(self.device)
         #! Should use DDP model here
         predictions_verb, predictions_noun = self.attention_model(
             feats, verb_class, noun_class
