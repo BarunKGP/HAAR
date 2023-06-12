@@ -261,6 +261,7 @@ class EpicActionRecognitionModule(object):
         """One step of the optimization process. This
         method is run in all of train/val/test
         """
+        assert key in ["verb_class", "noun_class"], "invalid key"
         rgb, flow = batch
         rgb_images, metadata = rgb  # rgb and flow metadata are the same
         flow_images = flow[0]
@@ -275,7 +276,10 @@ class EpicActionRecognitionModule(object):
         # verb_class = verb_class.to(self.device)
         # noun_class = noun_class.to(self.device)
         #! Should use DDP model here
-        predictions = self.attention_model(feats, word_class)
+        if key == "verb_class":
+            predictions = self.verb_model(feats, word_class)
+        else:
+            predictions = self.noun_model(feats, word_class)
         batch_acc = self.compute_accuracy(predictions, word_class)
         batch_loss = self.compute_loss(predictions, word_class)
 
