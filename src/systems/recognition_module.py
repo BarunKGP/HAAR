@@ -133,10 +133,7 @@ class EpicActionRecognitionModule(object):
         self.rgb_model = load_model(self.cfg, modality="rgb")
         self.flow_model = load_model(self.cfg, modality="flow")
 
-        self.send_all_to_gpu(
-            self.attention_model, self.narration_model, self.rgb_model, self.flow_model
-        )
-
+        self.debug()
         self.opt = self.get_optimizer()
 
         self.train_loss_history = []
@@ -144,13 +141,12 @@ class EpicActionRecognitionModule(object):
         self.train_accuracy_history = []
         self.validation_accuracy_history = []
 
-    def send_all_to_gpu(self, *args):
-        for a in args:
-            a = a.to(self.device)
-        # self.attention_model = self.attention_model.to(self.device)
-        # self.narration_model = self.narration_model.to(self.device)
-        # self.rgb_model = self.rgb_model.to(self.device)
-        # self.flow_model = self.flow_model.to(self.device)
+    def debug(self):
+        for param in self.rgb_model.parameters():
+            if not param.requires_grad:
+                print(param)
+
+        print(torch.cuda.memory_summary())
 
     def get_embeddings(self, mode):
         if mode == "verb":
@@ -267,10 +263,7 @@ class EpicActionRecognitionModule(object):
         verb_class = metadata["verb_class"]
         noun_class = metadata["noun_class"]
         text = metadata["narration"]
-        rgb_images = rgb_images.to(self.device)
-        flow_images = flow_images.to(self.device)
-        print("debug:", rgb_images.device)
-        rgb_feats = self.rgb_model(rgb_images)
+        rgb_feats = self.rgb_model(rgb_images.to(self.device))
         flow_feats = self.flow_model(flow_images)
         narration_feats = self.narration_model(text)
         feats = torch.hstack((rgb_feats, flow_feats, narration_feats))
@@ -288,6 +281,9 @@ class EpicActionRecognitionModule(object):
         # * Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
         batch_loss_verb = self.compute_loss(predictions_verb, verb_class)
         batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
+        print(
+            f"accuracy types: batch_loss_noun: {type(batch_loss_noun)}, batch_acc_verb: {batch_acc_verb}"
+        )
         return (batch_acc_verb, batch_acc_noun, batch_loss_verb, batch_loss_noun)
 
     def _train(self, loader):

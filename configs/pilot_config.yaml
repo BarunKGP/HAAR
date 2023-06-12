@@ -57,7 +57,7 @@ model:
     pretrained: True
 
 learning:
-  batch_size: 16
+  batch_size: 8
   optimizer:
     type: SGD
     momentum: 0.9
