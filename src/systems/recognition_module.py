@@ -250,8 +250,8 @@ class EpicActionRecognitionModule(object):
         method is run in all of train/val/test
         """
         images, metadata = batch
-        print(f"batch shape: {batch.rgb_dataset.size()}")
-        print(f"metadata: {type(metadata)}")
+        print(f"batch size: {len(batch)}")
+        print(f"batch[2] = {batch[2]}")
         verb_class = metadata["verb_class"]
         noun_class = metadata["noun_class"]
         text = metadata["narration"]
