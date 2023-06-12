@@ -372,7 +372,7 @@ class EpicActionRecognitionModule(object):
                 and after training. Defaults to self.save_path
         """
         if model_save_path is None:
-            model_save_path = self.cfg.save_path
+            model_save_path = self.cfg.save_path  # ? configure a default save_path?
 
         self.load_models_to_device()
         for epoch in tqdm(range(num_epochs), desc="epoch"):
