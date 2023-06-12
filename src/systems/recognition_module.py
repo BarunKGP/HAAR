@@ -65,9 +65,7 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
             )
         else:
             raise ValueError(f"Unknown model type {cfg.model.type!r}")
-        if modality == "flow":
-            LOG.info(model)
-        LOG.debug("Assigning model weights...")
+
         if cfg.model.get("weights", None) is not None:
             if cfg.model.pretrained is not None:
                 LOG.warning(
@@ -251,6 +249,7 @@ class EpicActionRecognitionModule(object):
         method is run in all of train/val/test
         """
         images, metadata = batch
+        print(f"metadata: {metadata}")
         verb_class = metadata["verb_class"]
         noun_class = metadata["noun_class"]
         text = metadata["narration"]
