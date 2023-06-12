@@ -70,7 +70,7 @@ class AttentionModel(nn.Module):
         if self.embeddings.ndim == 1:
             self.embeddings = self.embeddings[:, None]  # Convert to shape [b, K]
         A = torch.sigmoid(
-            torch.matmul(self.embeddings.to(self.device), frame_features)
+            torch.matmul(self.embeddings.to(super().device), frame_features)
         )  # shape: [b, C, 100]
 
         #! class-aware attention should only be done in training, figure out different flow for testing
