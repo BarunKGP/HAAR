@@ -266,7 +266,7 @@ class EpicActionRecognitionModule(object):
         rgb_feats = self.rgb_model(rgb_images.to(self.device))
         flow_feats = self.flow_model(flow_images.to(self.device))
         narration_feats = self.narration_model(text)
-        feats = torch.hstack((rgb_feats, flow_feats, narration_feats))
+        feats = torch.hstack((rgb_feats, flow_feats, narration_feats.to(self.device)))
         #! Following should be handled by DistributedSampler
         # feats = feats.to(self.device)
         # verb_class = verb_class.to(self.device)
