@@ -85,8 +85,9 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
                 sd = strip_model_prefix(state_dict["state_dict"])
 
                 # Change shape of final linear layer
-                sd["new_fc.weight"] = torch.rand([1024, 2048], requires_grad=True)
-                sd["new_fc.bias"] = torch.rand(1024, requires_grad=True)
+                if modality == "rgb":
+                    sd["new_fc.weight"] = torch.rand([1024, 2048], requires_grad=True)
+                    sd["new_fc.bias"] = torch.rand(1024, requires_grad=True)
                 missing, unexpected = model.load_state_dict(sd, strict=False)
                 if len(missing) > 0:
                     LOG.warning(f"Missing keys in checkpoint: {missing}")
