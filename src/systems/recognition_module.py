@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
-# from torch.nn.utils.clip_grad import clip_grad_norm_
+from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.optim import SGD, Adam
 from constants import (
     NUM_NOUNS,
@@ -127,9 +127,8 @@ class EpicActionRecognitionModule(object):
         self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
         self.noun_one_hot = F.one_hot(torch.arange(0, NUM_NOUNS))
 
-        #! Should be broken into noun and verb models
-        self.attention_model = AttentionModel(self.verb_embeddings, self.verb_map)
-        # * self.noun_model = AttentionModel(self.noun_embeddings, self.noun_map)
+        self.verb_model = AttentionModel(self.verb_embeddings, self.verb_map)
+        self.noun_model = AttentionModel(self.noun_embeddings, self.noun_map)
         self.rgb_model = load_model(self.cfg, modality="rgb")
         self.flow_model = load_model(self.cfg, modality="flow")
 
@@ -163,9 +162,11 @@ class EpicActionRecognitionModule(object):
 
     def get_optimizer(self):
         if self.ddp:
-            att_model = self.attention_model.module
+            att_model_verb = self.verb_model.module
+            att_model_noun = self.noun_model.module
         else:
-            att_model = self.attention_model
+            att_model_verb = self.verb_model
+            att_model_noun = self.noun_model
         if "optimizer" in self.cfg.learning:
             cfg = self.cfg.learning.optimizer
             if cfg["type"] == "Adam":
@@ -181,7 +182,8 @@ class EpicActionRecognitionModule(object):
                                 lambda p: p.requires_grad, self.flow_model.parameters()
                             ),
                         },
-                        {"params": att_model.parameters()},
+                        {"params": att_model_verb.parameters()},
+                        {"params": att_model_noun.parameters()},
                     ],
                     lr=cfg.lr,
                 )
@@ -198,7 +200,8 @@ class EpicActionRecognitionModule(object):
                                 lambda p: p.requires_grad, self.flow_model.parameters()
                             ),
                         },
-                        {"params": att_model.parameters()},
+                        {"params": att_model_verb.parameters()},
+                        {"params": att_model_noun.parameters()},
                     ],
                     lr=self.cfg.learning.lr,
                     momentum=cfg.momentum,
@@ -223,7 +226,8 @@ class EpicActionRecognitionModule(object):
                         lambda p: p.requires_grad, self.flow_model.parameters()
                     ),
                 },
-                {"params": att_model.parameters()},
+                {"params": att_model_verb.parameters()},
+                {"params": att_model_noun.parameters()},
             ],
             lr=lr,
             momentum=momentum,
@@ -253,15 +257,14 @@ class EpicActionRecognitionModule(object):
             os.path.join(path, f"checkpoint_{epoch}.pt"),
         )
 
-    def _step(self, batch):
+    def _step(self, batch, key):
         """One step of the optimization process. This
         method is run in all of train/val/test
         """
         rgb, flow = batch
         rgb_images, metadata = rgb  # rgb and flow metadata are the same
         flow_images = flow[0]
-        verb_class = metadata["verb_class"]
-        noun_class = metadata["noun_class"]
+        word_class = metadata[key]
         text = metadata["narration"]
         rgb_feats = self.rgb_model(rgb_images.to(self.device))
         flow_feats = self.flow_model(flow_images.to(self.device))
@@ -272,21 +275,17 @@ class EpicActionRecognitionModule(object):
         # verb_class = verb_class.to(self.device)
         # noun_class = noun_class.to(self.device)
         #! Should use DDP model here
-        predictions_verb, predictions_noun = self.attention_model(
-            feats, verb_class, noun_class
-        )
-        batch_acc_noun = self.compute_accuracy(predictions_noun, noun_class)
-        batch_acc_verb = self.compute_accuracy(predictions_verb, verb_class)
+        predictions = self.attention_model(feats, word_class)
+        batch_acc = self.compute_accuracy(predictions, word_class)
+        batch_loss = self.compute_loss(predictions, word_class)
 
-        # * Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
-        batch_loss_verb = self.compute_loss(predictions_verb, verb_class)
-        batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
-        print(
-            f"accuracy types: batch_loss_noun: {type(batch_loss_noun)}, batch_acc_verb: {batch_acc_verb}"
-        )
-        return (batch_acc_verb, batch_acc_noun, batch_loss_verb, batch_loss_noun)
+        # Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
+        # batch_loss_verb = self.compute_loss(predictions_verb, verb_class)
+        # batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
+        print(f"accuracy types: batch_loss: {type(batch_loss)}, batch_acc: {batch_acc}")
+        return batch_acc, batch_loss
 
-    def _train(self, loader):
+    def _train(self, loader, key):
         """Run the training loop for one epoch.
         Calculate and return the loss and accuracy.
         Separate loop for val/test - no backprop.
@@ -299,22 +298,16 @@ class EpicActionRecognitionModule(object):
         train_acc_meter = ActionMeter("train accuracy")
 
         for batch in tqdm(loader, desc="train_loader", total=len(loader)):
-            (
-                batch_acc_verb,
-                batch_acc_noun,
-                batch_loss_verb,
-                batch_loss_noun,
-            ) = self._step(batch)
-            batch_loss = batch_loss_noun + batch_loss_verb
-            train_acc_meter.update(batch_acc_verb, batch_acc_noun, len(batch[0]))
-            train_loss_meter.update(
-                batch_loss_verb.item(), batch_loss_noun.item(), len(batch[0])
-            )
+            batch_acc, batch_loss = self._step(batch, key)
+            train_acc_meter.update(batch_acc, len(batch[0]))
+            train_loss_meter.update(batch_loss.item(), len(batch[0]))
 
             # Backpropagate and optimize
             self.attention_model.zero_grad()
             batch_loss.backward()
-            # clip_grad_norm_(self.attention_model.parameters(), self.cfg.trainer.clip_grad_val)
+            clip_grad_norm_(
+                self.attention_model.parameters(), self.cfg.trainer.gradient_clip_val
+            )
             self.opt.step()
         return (
             train_loss_meter.avg_verb,
@@ -323,21 +316,16 @@ class EpicActionRecognitionModule(object):
             train_acc_meter.avg_noun,
         )
 
-    def _validate(self, loader):
+    def _validate(self, loader, key):
         self.attention_model.eval()
         val_loss_meter = ActionMeter("val loss")
         val_acc_meter = ActionMeter("val accuracy")
 
         for batch in tqdm(loader, desc="val_loader", total=len(loader)):  # type: ignore
             n = batch[0].shape[0]  # batch size
-            (
-                batch_acc_verb,
-                batch_acc_noun,
-                batch_loss_verb,
-                batch_loss_noun,
-            ) = self._step(batch)
-            val_acc_meter.update(batch_acc_verb, batch_acc_noun, n)
-            val_loss_meter.update(batch_loss_verb.item(), batch_loss_noun.item(), n)
+            batch_acc, batch_loss = self._step(batch, key)
+            val_acc_meter.update(batch_acc, n)
+            val_loss_meter.update(batch_loss.item(), n)
 
         self.attention_model.train()
         return (
@@ -364,13 +352,15 @@ class EpicActionRecognitionModule(object):
         self.rgb_model = self.rgb_model.to(self.device)
         self.flow_model = self.flow_model.to(self.device)
         self.narration_model = self.narration_model.to(self.device)
-        self.attention_model = self.attention_model.to(self.device)
+        self.verb_model = self.verb_model.to(self.device)
+        # self.noun_model = self.noun_model.to(self.device)
         if self.cfg.learning.get("ddp", False):
             self.attention_model = DDP(self.attention_model, device_ids=[self.device])  # type: ignore
         if train:
             self.rgb_model.train()
             self.flow_model.train()
-            self.attention_model.train()
+            self.verb_model.train()
+            self.noun_model.train()
 
     # baseline paper used num_epochs = 3e6
     def training_loop(self, num_epochs=500, model_save_path=None):
@@ -387,32 +377,29 @@ class EpicActionRecognitionModule(object):
             model_save_path = self.cfg.save_path  # ? configure a default save_path?
 
         self.load_models_to_device()
-        for epoch in tqdm(range(num_epochs), desc="epoch"):
+        for epoch in tqdm(range(num_epochs), desc="training_verbs"):
             if self.ddp:
                 self.train_loader.sampler.set_epoch(epoch)
-            loss_verb, loss_noun, acc_verb, acc_noun = self._train(self.train_loader)
-            train_loss = loss_noun + loss_verb
-            self.train_loss_history.append(train_loss)
-            self.train_accuracy_history.append((acc_verb, acc_noun))
+            train_loss_verb, _, train_acc_verb, _ = self._train(
+                self.train_loader, "verb_class"
+            )
+            self.train_loss_history.append(train_loss_verb)
+            self.train_accuracy_history.append(train_acc_verb)
 
             if epoch % 10 == 0:
                 if self.ddp:
                     self.val_loader.sampler.set_epoch(epoch)
-                (
-                    val_loss_verb,
-                    val_loss_noun,
-                    val_verb_acc,
-                    val_noun_acc,
-                ) = self._validate(self.val_loader)
-                val_loss = val_loss_noun + val_loss_verb
-                self.validation_loss_history.append(val_loss)
-                self.validation_accuracy_history.append((val_verb_acc, val_noun_acc))
+                val_loss_verb, _, val_acc_verb, _ = self._validate(
+                    self.val_loader, "verb_class"
+                )
+                self.validation_loss_history.append(val_loss_verb)
+                self.validation_accuracy_history.append(val_acc_verb)
                 LOG.info(
                     f"Epoch:{epoch + 1}"
-                    + f" Train Loss (verb/noun):{loss_verb}/{loss_noun}"
-                    + f" Val Loss (verb/noun): {val_loss_verb}/{val_loss_noun}"
-                    + f" Train Accuracy (verb/noun): {acc_verb:.4f}/{acc_noun:.4f}"
-                    + f" Validation Accuracy (verb/noun): {val_verb_acc:.4f}/{val_noun_acc:.4f}"
+                    + f" Train Loss: {train_loss_verb}"
+                    + f" Val Loss: {val_loss_verb}"
+                    + f" Train Accuracy: {train_acc_verb:4f}"
+                    + f" Validation Accuracy: {val_acc_verb:.4f}"
                 )
 
         # Write training stats for analysis
