@@ -338,7 +338,7 @@ class EpicActionRecognitionModule(object):
         return batch_acc, batch_loss
 
     def compute_accuracy(self, preds, labels):
-        print(f"preds device = {preds.device()}, labels device = {labels.device}")
+        print(f"preds device = {preds.device}, labels device = {labels.device}")
         with torch.no_grad():
             preds = torch.argmax(preds, dim=1)
             correct = (preds == labels.cpu()).float().sum().item()
