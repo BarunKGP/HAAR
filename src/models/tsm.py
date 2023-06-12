@@ -89,7 +89,7 @@ class TSM(nn.Module):
 
         self._prepare_tsn(num_class)
 
-        if self.modality == "Flow":
+        if self.modality.lower() == "flow":
             LOG.info("Converting model to take operate on optical flow")
             self.base_model = self._construct_flow_model(self.base_model)
         self.consensus = ConsensusModule(consensus_type)
