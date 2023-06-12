@@ -132,7 +132,7 @@ class EpicActionRecognitionModule(object):
         self.rgb_model = load_model(self.cfg, modality="rgb")
         self.flow_model = load_model(self.cfg, modality="flow")
 
-        self.debug()
+        # self.debug()
         self.opt = self.get_optimizer()
 
         self.train_loss_history = []
