@@ -269,7 +269,6 @@ class EpicActionRecognitionModule(object):
         text = metadata["narration"]
         rgb_images = rgb_images.to(self.device)
         flow_images = flow_images.to(self.device)
-        text = text.to(self.device)
         rgb_feats = self.rgb_model(rgb_images)
         flow_feats = self.flow_model(flow_images)
         narration_feats = self.narration_model(text)
