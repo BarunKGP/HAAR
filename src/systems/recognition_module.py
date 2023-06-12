@@ -257,38 +257,6 @@ class EpicActionRecognitionModule(object):
             os.path.join(path, f"checkpoint_{epoch}.pt"),
         )
 
-    def _step(self, batch, key):
-        """One step of the optimization process. This
-        method is run in all of train/val/test
-        """
-        assert key in ["verb_class", "noun_class"], "invalid key"
-        rgb, flow = batch
-        rgb_images, metadata = rgb  # rgb and flow metadata are the same
-        flow_images = flow[0]
-        word_class = metadata[key]
-        text = metadata["narration"]
-        rgb_feats = self.rgb_model(rgb_images.to(self.device))
-        flow_feats = self.flow_model(flow_images.to(self.device))
-        narration_feats = self.narration_model(text)
-        feats = torch.hstack((rgb_feats, flow_feats, narration_feats.to(self.device)))
-        #! Following should be handled by DistributedSampler
-        # feats = feats.to(self.device)
-        # verb_class = verb_class.to(self.device)
-        # noun_class = noun_class.to(self.device)
-        #! Should use DDP model here
-        if key == "verb_class":
-            predictions = self.verb_model(feats, word_class)
-        else:
-            predictions = self.noun_model(feats, word_class)
-        batch_acc = self.compute_accuracy(predictions, word_class)
-        batch_loss = self.compute_loss(predictions, word_class)
-
-        # Pytorch multi-loss reference: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
-        # batch_loss_verb = self.compute_loss(predictions_verb, verb_class)
-        # batch_loss_noun = self.compute_loss(predictions_noun, noun_class)
-        print(f"accuracy types: batch_loss: {type(batch_loss)}, batch_acc: {batch_acc}")
-        return batch_acc, batch_loss
-
     def _train(self, loader, key):
         """Run the training loop for one epoch.
         Calculate and return the loss and accuracy.
@@ -339,10 +307,40 @@ class EpicActionRecognitionModule(object):
             val_acc_meter.avg_noun,
         )
 
+    def _step(self, batch, key):
+        """One step of the optimization process. This
+        method is run in all of train/val/test
+        """
+        assert key in ["verb_class", "noun_class"], "invalid key"
+        rgb, flow = batch
+        rgb_images, metadata = rgb  # rgb and flow metadata are the same
+        flow_images = flow[0]
+        word_class = metadata[key]
+        text = metadata["narration"]
+        rgb_feats = self.rgb_model(rgb_images.to(self.device))
+        flow_feats = self.flow_model(flow_images.to(self.device))
+        narration_feats = self.narration_model(text)
+        feats = torch.hstack((rgb_feats, flow_feats, narration_feats.to(self.device)))
+        #! Following should be handled by DistributedSampler
+        # feats = feats.to(self.device)
+        # verb_class = verb_class.to(self.device)
+        # noun_class = noun_class.to(self.device)
+        #! Should use DDP model here
+        if key == "verb_class":
+            predictions = self.verb_model(feats, word_class)
+        else:
+            predictions = self.noun_model(feats, word_class)
+        predictions = predictions.detach()
+        batch_acc = self.compute_accuracy(predictions, word_class)
+        batch_loss = self.compute_loss(predictions, word_class)
+
+        print(f"accuracy types: batch_loss: {type(batch_loss)}, batch_acc: {batch_acc}")
+        return batch_acc, batch_loss
+
     def compute_accuracy(self, preds, labels):
         with torch.no_grad():
             preds = torch.argmax(preds, dim=1)
-            correct = (preds == labels).float().sum().item()
+            correct = (preds == labels.cpu()).float().sum().item()
             batch_accuracy = correct / len(preds)
         return batch_accuracy
 
