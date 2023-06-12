@@ -1,3 +1,4 @@
+import sys
 from omegaconf import DictConfig, OmegaConf
 import hydra
 from mp_utils import ddp_setup
@@ -46,6 +47,7 @@ def main(cfg: DictConfig):
     # if ddp:
     #     destroy_process_group()
     print("Training completed!")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
