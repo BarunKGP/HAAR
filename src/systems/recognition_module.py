@@ -133,12 +133,24 @@ class EpicActionRecognitionModule(object):
         self.rgb_model = load_model(self.cfg, modality="rgb")
         self.flow_model = load_model(self.cfg, modality="flow")
 
+        self.send_all_to_gpu(
+            self.attention_model, self.narration_model, self.rgb_model, self.flow_model
+        )
+
         self.opt = self.get_optimizer()
 
         self.train_loss_history = []
         self.validation_loss_history = []
         self.train_accuracy_history = []
         self.validation_accuracy_history = []
+
+    def send_all_to_gpu(self, *args):
+        for a in args:
+            a = a.to(self.device)
+        # self.attention_model = self.attention_model.to(self.device)
+        # self.narration_model = self.narration_model.to(self.device)
+        # self.rgb_model = self.rgb_model.to(self.device)
+        # self.flow_model = self.flow_model.to(self.device)
 
     def get_embeddings(self, mode):
         if mode == "verb":
@@ -255,14 +267,17 @@ class EpicActionRecognitionModule(object):
         verb_class = metadata["verb_class"]
         noun_class = metadata["noun_class"]
         text = metadata["narration"]
+        rgb_images = rgb_images.to(self.device)
+        flow_images = flow_images.to(self.device)
+        text = text.to(self.device)
         rgb_feats = self.rgb_model(rgb_images)
         flow_feats = self.flow_model(flow_images)
         narration_feats = self.narration_model(text)
         feats = torch.hstack((rgb_feats, flow_feats, narration_feats))
         #! Following should be handled by DistributedSampler
-        # feats = feats.to(self.device)
-        # verb_class = verb_class.to(self.device)
-        # noun_class = noun_class.to(self.device)
+        feats = feats.to(self.device)
+        verb_class = verb_class.to(self.device)
+        noun_class = noun_class.to(self.device)
         #! Should use DDP model here
         predictions_verb, predictions_noun = self.attention_model(
             feats, verb_class, noun_class
