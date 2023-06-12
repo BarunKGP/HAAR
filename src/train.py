@@ -21,10 +21,11 @@ def main(cfg: DictConfig):
     # debug
     loader = data_module.val_dataloader()
     for item in loader:
-        tensors, metadata = item
-        print(len(item))
-        print(len(tensors))
-        print(len(metadata))
+        rgb, flow = item
+        rgb_tensors, rgb_metadata = rgb
+        # print(len(item))
+        print(rgb_tensors.size())
+        print(rgb_metadata.keys())
         break
 
     # system = EpicActionRecognitionModule(cfg, data_module)
@@ -44,7 +45,7 @@ def main(cfg: DictConfig):
     # system.training_loop(1, cfg.model.save_path)
     # if ddp:
     #     destroy_process_group()
-    LOG.info("Training completed!")
+    print("Training completed!")
 
 
 if __name__ == "__main__":
