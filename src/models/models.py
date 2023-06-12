@@ -32,8 +32,6 @@ class AttentionModel(nn.Module):
         self.embeddings = embeddings
         self.word_map = word_map
         self.cardinality = len(self.word_map)
-        self.device = get_device()
-
         self.layer1 = nn.Sequential(
             nn.Conv1d(in_channels=1, out_channels=100, kernel_size=3),
             nn.ReLU(),
@@ -72,7 +70,7 @@ class AttentionModel(nn.Module):
         if self.embeddings.ndim == 1:
             self.embeddings = self.embeddings[:, None]  # Convert to shape [b, K]
         A = torch.sigmoid(
-            torch.matmul(self.embeddings, frame_features)
+            torch.matmul(self.embeddings.to(self.device), frame_features)
         )  # shape: [b, C, 100]
 
         #! class-aware attention should only be done in training, figure out different flow for testing
