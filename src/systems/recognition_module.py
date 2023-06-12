@@ -147,18 +147,23 @@ class EpicActionRecognitionModule(object):
 
         print(torch.cuda.memory_summary())
 
-    def get_embeddings(self, mode):
-        if mode == "verb":
+    def get_embeddings(self, key):
+        if key.lower() == "verb":
             text = self.verb_map["key"].values.tolist()
-        elif mode == "noun":
+        elif key.lower() == "noun":
             text = self.noun_map["key"].values.tolist()
         else:
-            raise Exception('Invalid mode: choose either "noun" or "verb"')
+            raise Exception('Invalid key: choose either "noun" or "verb"')
         embeddings = self.narration_model(text)
         return embeddings
 
-    def get_model(self):
-        return self.attention_model
+    def get_model(self, key):
+        if key.lower() == "verb":
+            return self.verb_model
+        elif key.lower() == "noun":
+            return self.noun_model
+        else:
+            raise Exception('Invalid key: choose either "noun" or "verb"')
 
     def get_optimizer(self):
         if self.ddp:
@@ -251,7 +256,8 @@ class EpicActionRecognitionModule(object):
                 "epoch": epoch,
                 "rgb_model": self.rgb_model.cpu().state_dict(),
                 "flow_model_state_dict": self.flow_model.cpu().state_dict(),
-                "attention_model_state_dict": self.attention_model.module().state_dict() if self.ddp else self.attention_model.state_dict(),  # type: ignore
+                "verb_model_state_dict": self.verb_model.module().state_dict() if self.ddp else self.verb_model.state_dict(),  # type: ignore
+                "noun_model_state_dict": self.noun_model.module().state_dict() if self.ddp else self.noun_model.state_dict(),  # type: ignore
                 "optimizer_state_dict": self.opt.state_dict(),
             },
             os.path.join(path, f"checkpoint_{epoch}.pt"),
@@ -265,7 +271,7 @@ class EpicActionRecognitionModule(object):
         Returns:
             (float, float, float, float): average loss and accuracy
         """
-        # self.attention_model.train()
+        assert key in ["verb_class", "noun_class"], "invalid key"
         train_loss_meter = ActionMeter("train loss")
         train_acc_meter = ActionMeter("train accuracy")
 
@@ -273,6 +279,10 @@ class EpicActionRecognitionModule(object):
             batch_acc, batch_loss = self._step(batch, key)
             train_acc_meter.update(batch_acc, len(batch[0]))
             train_loss_meter.update(batch_loss.item(), len(batch[0]))
+
+            self.backprop(
+                self.verb_model if key == "verb_class" else self.noun_model, batch_loss
+            )
 
         return (
             train_loss_meter.avg_verb,
@@ -282,7 +292,12 @@ class EpicActionRecognitionModule(object):
         )
 
     def _validate(self, loader, key):
-        self.attention_model.eval()
+        assert key in ["verb_class", "noun_class"], "invalid key"
+        if key == "verb_class":
+            model = self.verb_model
+        else:
+            model = self.noun_model
+        model.eval()
         val_loss_meter = ActionMeter("val loss")
         val_acc_meter = ActionMeter("val accuracy")
 
@@ -292,7 +307,7 @@ class EpicActionRecognitionModule(object):
             val_acc_meter.update(batch_acc, n)
             val_loss_meter.update(batch_loss.item(), n)
 
-        self.attention_model.train()
+        model.train()
         return (
             val_loss_meter.avg_verb,
             val_loss_meter.avg_noun,
@@ -304,32 +319,36 @@ class EpicActionRecognitionModule(object):
         """One step of the optimization process. This
         method is run in all of train/val/test
         """
-        assert key in ["verb_class", "noun_class"], "invalid key"
         rgb, flow = batch
         rgb_images, metadata = rgb  # rgb and flow metadata are the same
         flow_images = flow[0]
         word_class = metadata[key]
         text = metadata["narration"]
+
+        # Feature extraction
         rgb_feats = self.rgb_model(rgb_images.to(self.device))
         flow_feats = self.flow_model(flow_images.to(self.device))
         narration_feats = self.narration_model(text)
         feats = torch.hstack((rgb_feats, flow_feats, narration_feats.to(self.device)))
-        #! Following should be handled by DistributedSampler
-        # feats = feats.to(self.device)
-        # verb_class = verb_class.to(self.device)
-        # noun_class = noun_class.to(self.device)
-        #! Should use DDP model here
+
+        # Predictions
+        #! Should use DDP model
+        # if self.ddp:
+        #     if key == "verb_class":
+        #         predictions = self.verb_model.module(feats, word_class)
+        #     else:
+        #         predictions = self.noun_model.module(feats, word_class)
+        # else:
         if key == "verb_class":
             predictions = self.verb_model(feats, word_class)
         else:
             predictions = self.noun_model(feats, word_class)
         predictions = predictions.cpu()
+
+        # Compute loss and accuracy
         batch_acc = self.compute_accuracy(predictions, word_class)
         batch_loss = self.compute_loss(predictions, word_class)
 
-        print(
-            f"accuracy types: batch_loss: {type(batch_loss), batch_loss}, batch_acc: {type(batch_acc)}"
-        )
         return batch_acc, batch_loss
 
     def backprop(self, model: AttentionModel, loss):
@@ -379,7 +398,7 @@ class EpicActionRecognitionModule(object):
         """
         if model_save_path is None:
             model_save_path = self.cfg.save_path  # ? configure a default save_path?
-
+        torch.cuda.empty_cache()
         self.load_models_to_device()
         for epoch in tqdm(range(num_epochs), desc="training_verbs"):
             if self.ddp:
@@ -387,7 +406,6 @@ class EpicActionRecognitionModule(object):
             train_loss_verb, _, train_acc_verb, _ = self._train(
                 self.train_loader, "verb_class"
             )
-            self.backprop(self.verb_model, train_loss_verb)
             self.train_loss_history.append(train_loss_verb)
             self.train_accuracy_history.append(train_acc_verb)
 
