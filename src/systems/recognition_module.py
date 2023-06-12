@@ -251,7 +251,7 @@ class EpicActionRecognitionModule(object):
         """
         images, metadata = batch
         print(f"batch size: {len(batch)}")
-        print(f"batch[2] = {batch[2]}")
+        print(f"batch[2] = {batch[0]}")
         verb_class = metadata["verb_class"]
         noun_class = metadata["noun_class"]
         text = metadata["narration"]
