@@ -359,7 +359,9 @@ class EpicActionRecognitionModule(object):
 
     def compute_accuracy(self, preds, labels):
         print(f"labels = {labels}")
-        print(f"predictions = {preds}")
+        print(f"predictions = {torch.argmax(preds, dim=1)}")
+        print(f"preds_shape = {preds.size()}")
+
         with torch.no_grad():
             preds = torch.argmax(preds, dim=1)
             correct = (preds == labels).float().sum().item()
