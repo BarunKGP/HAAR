@@ -365,6 +365,7 @@ class EpicActionRecognitionModule(object):
         with torch.no_grad():
             preds = torch.argmax(preds, dim=1)
             correct = (preds == labels).float().sum().item()
+            print(f"correct = {correct}")
             batch_accuracy = correct / len(preds)
         return batch_accuracy
 
