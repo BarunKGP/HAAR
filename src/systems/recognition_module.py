@@ -323,6 +323,7 @@ class EpicActionRecognitionModule(object):
         rgb_images, metadata = rgb  # rgb and flow metadata are the same
         flow_images = flow[0]
         word_class = metadata[key]
+        print(f"key = {key}, word_class = {word_class}")
         text = metadata["narration"]
 
         # Feature extraction
