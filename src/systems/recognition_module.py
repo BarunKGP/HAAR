@@ -281,6 +281,7 @@ class EpicActionRecognitionModule(object):
             self.backprop(
                 self.verb_model if key == "verb_class" else self.noun_model, batch_loss
             )
+            break
 
         return (
             train_loss_meter.avg_verb,
@@ -303,6 +304,7 @@ class EpicActionRecognitionModule(object):
             batch_acc, batch_loss = self._step(batch, key)
             val_acc_meter.update(batch_acc, batch_size)
             val_loss_meter.update(batch_loss.item(), batch_size)
+            break
 
         model.train()
         return (
