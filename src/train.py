@@ -1,3 +1,4 @@
+from pathlib import Path
 import sys
 from omegaconf import DictConfig, OmegaConf
 import hydra
@@ -43,7 +44,7 @@ def main(cfg: DictConfig):
     if ddp:
         ddp_setup()
     # LOG.info("Starting training....")
-    system.run_training_loop(1, cfg.model.save_path)
+    system.run_training_loop(1, Path(cfg.model.save_path))
     if ddp:
         destroy_process_group()
     LOG.info("Training completed!")

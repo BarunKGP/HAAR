@@ -400,7 +400,7 @@ class EpicActionRecognitionModule(object):
         return False
 
     # baseline paper used num_epochs = 3e6
-    def run_training_loop(self, num_epochs=500, model_save_path=None):
+    def run_training_loop(self, num_epochs: int = 50, model_save_path: Path = None):
         """Run the main training loop for the model.
         May need to run separate loops for train/test.
 
@@ -414,10 +414,12 @@ class EpicActionRecognitionModule(object):
             model_save_path = self.cfg.save_path  # ? configure a default save_path?
         torch.cuda.empty_cache()
         self.load_models_to_device()
-        os.mkdir(os.path.join(model_save_path, "verbs"))
-        os.mkdir(os.path.join(model_save_path, "nouns"))
-        verb_save_path = Path(model_save_path) / "verbs"
-        noun_save_path = Path(model_save_path) / "nouns"
+        verb_save_path = model_save_path / "verbs"
+        noun_save_path = model_save_path / "nouns"
+        verb_save_path.mkdir(parents=True, exist_ok=True)
+        noun_save_path.mkdir(parents=True, exist_ok=True)
+        # os.mkdir(verb_save_path)
+        # os.mkdir(noun_save_path)
         log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
 
         LOG.info("---------------- ### PHASE 1: TRAINING VERBS ### ----------------")
