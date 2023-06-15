@@ -370,19 +370,29 @@ class EpicActionRecognitionModule(object):
             loss = loss / len(preds)
         return loss
 
-    def load_models_to_device(self, train=True):
+    def load_models_to_device(self, train=True, verb=True):
         self.rgb_model = self.rgb_model.to(self.device)
         self.flow_model = self.flow_model.to(self.device)
         self.narration_model = self.narration_model.to(self.device)
-        self.verb_model = self.verb_model.to(self.device)
-        # self.noun_model = self.noun_model.to(self.device)
+        if verb:
+            self.verb_model = self.verb_model.to(self.device)
+        else:
+            self.noun_model = self.noun_model.to(self.device)
         if self.cfg.learning.get("ddp", False):
-            self.attention_model = DDP(self.attention_model, device_ids=[self.device])  # type: ignore
+            if verb:
+                self.verb_model = DDP(self.verb_model, device_ids=[self.device])  # type: ignore
+            else:
+                self.noun_model = DDP(self.noun_model, device_ids=[self.device])  # type: ignore
         if train:
             self.rgb_model.train()
             self.flow_model.train()
             self.verb_model.train()
             self.noun_model.train()
+        else:
+            self.rgb_model.eval()
+            self.flow_model.eval()
+            self.verb_model.eval()
+            self.noun_model.eval()
 
     def early_stopping(self, loss, accuracy):
         if self.cfg.trainer.get("early_stopping", False):
@@ -413,7 +423,7 @@ class EpicActionRecognitionModule(object):
         if model_save_path is None:
             model_save_path = self.cfg.save_path  # ? configure a default save_path?
         torch.cuda.empty_cache()
-        self.load_models_to_device()
+        self.load_models_to_device(verb=True)
         verb_save_path = model_save_path / "verbs"
         noun_save_path = model_save_path / "nouns"
         verb_save_path.mkdir(parents=True, exist_ok=True)
@@ -466,7 +476,7 @@ class EpicActionRecognitionModule(object):
         self.train_accuracy_history = []
         self.validation_loss_history = []
         self.validation_accuracy_history = []
-        self.load_models_to_device()
+        self.load_models_to_device(verb=False)
         LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
         for epoch in tqdm(range(num_epochs)):
             if self.ddp:
