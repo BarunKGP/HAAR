@@ -148,32 +148,19 @@ class ActionMeter:
         self.reset()
 
     def reset(self) -> None:
-        self.val_noun = self.val_verb = 0
-        self.avg_noun = self.avg_verb = 0
-        self.sum_noun = self.sum_verb = 0
+        self.sum = 0
+        self.avg = 0
         self.count = 0
 
-    def update(self, val_verb: float, val_noun: float, n: int = 1):
-        self.val_noun = val_noun
-        self.val_verb = val_verb
-        self.sum_noun += val_noun * n
-        self.sum_verb += val_verb * n
+    def update(self, value: float, n: int = 1):
+        self.sum += value * n
         self.count += n
-        self.avg_noun = self.sum_noun / self.count
-        self.avg_verb = self.sum_verb / self.count
+        self.avg = self.sum / self.count
+
+    def get_average_values(self):
+        return self.avg
 
     def __str__(self):
-        fmtstr = (
-            "({name} ({val_verb"
-            + self.fmt
-            + "}), ({val_noun"
-            + self.fmt
-            + "})"
-            + "({avg_verb"
-            + self.fmt
-            + "}), ({avg_noun"
-            + self.fmt
-            + "})"
-        )
+        fmtstr = "({name} ({avg" + self.fmt + "}), ({count" + self.fmt + "})"
 
         return fmtstr.format(**self.__dict__)

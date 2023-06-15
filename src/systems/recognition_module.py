@@ -285,10 +285,8 @@ class EpicActionRecognitionModule(object):
             break
 
         return (
-            train_loss_meter.avg_verb,
-            train_loss_meter.avg_noun,
-            train_acc_meter.avg_verb,
-            train_acc_meter.avg_noun,
+            train_loss_meter.get_average_values(),
+            train_acc_meter.get_average_values(),
         )
 
     def _validate(self, loader, key):
@@ -309,10 +307,8 @@ class EpicActionRecognitionModule(object):
 
         model.train()
         return (
-            val_loss_meter.avg_verb,
-            val_loss_meter.avg_noun,
-            val_acc_meter.avg_verb,
-            val_acc_meter.avg_noun,
+            val_loss_meter.get_average_values(),
+            val_acc_meter.get_average_values(),
         )
 
     def _step(self, batch, key):
@@ -442,7 +438,7 @@ class EpicActionRecognitionModule(object):
         for epoch in tqdm(range(num_epochs)):
             if self.ddp:
                 self.train_loader.sampler.set_epoch(epoch)
-            train_loss_verb, _, train_acc_verb, _ = self._train(
+            train_loss_verb, train_acc_verb = self._train(
                 self.train_loader, "verb_class"
             )
             self.train_loss_history.append(train_loss_verb)
@@ -451,7 +447,7 @@ class EpicActionRecognitionModule(object):
             if epoch % log_every_n_steps == 0:
                 if self.ddp:
                     self.val_loader.sampler.set_epoch(epoch)
-                val_loss_verb, _, val_acc_verb, _ = self._validate(
+                val_loss_verb, val_acc_verb = self._validate(
                     self.val_loader, "verb_class"
                 )
                 self.validation_loss_history.append(val_loss_verb)
@@ -489,7 +485,7 @@ class EpicActionRecognitionModule(object):
         for epoch in tqdm(range(num_epochs)):
             if self.ddp:
                 self.train_loader.sampler.set_epoch(epoch)
-            _, train_loss_noun, _, train_acc_noun = self._train(
+            train_loss_noun, train_acc_noun = self._train(
                 self.train_loader, "noun_class"
             )
             self.train_loss_history.append(train_loss_noun)
@@ -498,7 +494,7 @@ class EpicActionRecognitionModule(object):
             if epoch % log_every_n_steps == 0:
                 if self.ddp:
                     self.val_loader.sampler.set_epoch(epoch)
-                _, val_loss_noun, _, val_acc_noun = self._validate(
+                val_loss_noun, val_acc_noun = self._validate(
                     self.val_loader, "noun_class"
                 )
                 self.validation_loss_history.append(val_loss_noun)
