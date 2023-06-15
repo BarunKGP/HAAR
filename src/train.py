@@ -43,7 +43,7 @@ def main(cfg: DictConfig):
     if ddp:
         ddp_setup()
     # LOG.info("Starting training....")
-    system.training_loop(1, cfg.model.save_path)
+    system.run_training_loop(1, cfg.model.save_path)
     if ddp:
         destroy_process_group()
     LOG.info("Training completed!")

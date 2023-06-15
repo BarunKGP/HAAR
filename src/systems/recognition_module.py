@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import re
 from omegaconf import DictConfig
 
@@ -114,7 +115,6 @@ class EpicActionRecognitionModule(object):
         else:
             self.device = get_device()
             rank = None
-        print(f"self.device = {self.device}")
         self.train_loader = datamodule.train_dataloader(rank=rank)
         self.val_loader = datamodule.val_dataloader(rank=rank)
         self.test_loader = datamodule.test_dataloader(rank=rank)
@@ -238,27 +238,23 @@ class EpicActionRecognitionModule(object):
             momentum=momentum,
         )
 
-    def save_model(self, epoch) -> None:
+    def save_model(self, epoch, path) -> None:
         """
         Saves the model state and optimizer state on the dict
 
         __args__:
             epoch (int): number of epochs the model has been
                 trained for
+            path (Path): path to save the model
         """
-        path = self.cfg.model.get(
-            "save_path", None
-        )  #! figure out correct config mapping
-        if path is None:
-            path = r"./checkpoints"
         torch.save(
             {
                 "epoch": epoch,
                 "rgb_model": self.rgb_model.cpu().state_dict(),
-                "flow_model_state_dict": self.flow_model.cpu().state_dict(),
-                "verb_model_state_dict": self.verb_model.module().state_dict() if self.ddp else self.verb_model.state_dict(),  # type: ignore
-                "noun_model_state_dict": self.noun_model.module().state_dict() if self.ddp else self.noun_model.state_dict(),  # type: ignore
-                "optimizer_state_dict": self.opt.state_dict(),
+                "flow_model": self.flow_model.cpu().state_dict(),
+                "verb_model": self.verb_model.module().state_dict() if self.ddp else self.verb_model.state_dict(),  # type: ignore
+                "noun_model": self.noun_model.module().state_dict() if self.ddp else self.noun_model.state_dict(),  # type: ignore
+                "optimizer": self.opt.state_dict(),
             },
             os.path.join(path, f"checkpoint_{epoch}.pt"),
         )
@@ -274,11 +270,13 @@ class EpicActionRecognitionModule(object):
         assert key in ["verb_class", "noun_class"], "invalid key"
         train_loss_meter = ActionMeter("train loss")
         train_acc_meter = ActionMeter("train accuracy")
-
-        for batch in tqdm(loader, desc="train_loader", total=len(loader)):
+        batch_size = self.cfg.learning.batch_size
+        for batch in tqdm(
+            loader, desc="train_loader", total=len(loader), position=0, leave=True
+        ):
             batch_acc, batch_loss = self._step(batch, key)
-            train_acc_meter.update(batch_acc, len(batch[0]))
-            train_loss_meter.update(batch_loss.item(), len(batch[0]))
+            train_acc_meter.update(batch_acc, batch_size)
+            train_loss_meter.update(batch_loss.item(), batch_size)
 
             self.backprop(
                 self.verb_model if key == "verb_class" else self.noun_model, batch_loss
@@ -300,12 +298,11 @@ class EpicActionRecognitionModule(object):
         model.eval()
         val_loss_meter = ActionMeter("val loss")
         val_acc_meter = ActionMeter("val accuracy")
-
+        batch_size = self.cfg.learning.batch_size
         for batch in tqdm(loader, desc="val_loader", total=len(loader)):  # type: ignore
-            n = batch[0].shape[0]  # batch size
             batch_acc, batch_loss = self._step(batch, key)
-            val_acc_meter.update(batch_acc, n)
-            val_loss_meter.update(batch_loss.item(), n)
+            val_acc_meter.update(batch_acc, batch_size)
+            val_loss_meter.update(batch_loss.item(), batch_size)
 
         model.train()
         return (
@@ -333,16 +330,16 @@ class EpicActionRecognitionModule(object):
 
         # Predictions
         #! Should use DDP model
-        # if self.ddp:
-        #     if key == "verb_class":
-        #         predictions = self.verb_model.module(feats, word_class)
-        #     else:
-        #         predictions = self.noun_model.module(feats, word_class)
-        # else:
-        if key == "verb_class":
-            predictions = self.verb_model(feats, word_class)
+        if self.ddp:
+            if key == "verb_class":
+                predictions = self.verb_model.module(feats, word_class)
+            else:
+                predictions = self.noun_model.module(feats, word_class)
         else:
-            predictions = self.noun_model(feats, word_class)
+            if key == "verb_class":
+                predictions = self.verb_model(feats, word_class)
+            else:
+                predictions = self.noun_model(feats, word_class)
         predictions = predictions.cpu()
 
         # Compute loss and accuracy
@@ -385,8 +382,23 @@ class EpicActionRecognitionModule(object):
             self.verb_model.train()
             self.noun_model.train()
 
+    def early_stopping(self, loss, accuracy):
+        if self.cfg.trainer.get("early_stopping", False):
+            threshold = self.cfg.trainer.early_stopping["threshold"]
+            if (
+                self.cfg.trainer.early_stopping.criterion == "accuracy"
+                and accuracy >= threshold
+            ):
+                return True
+            elif (
+                self.cfg.trainer.early_stopping.criterion == "loss"
+                and loss <= threshold
+            ):
+                return True
+        return False
+
     # baseline paper used num_epochs = 3e6
-    def training_loop(self, num_epochs=500, model_save_path=None):
+    def run_training_loop(self, num_epochs=500, model_save_path=None):
         """Run the main training loop for the model.
         May need to run separate loops for train/test.
 
@@ -400,7 +412,14 @@ class EpicActionRecognitionModule(object):
             model_save_path = self.cfg.save_path  # ? configure a default save_path?
         torch.cuda.empty_cache()
         self.load_models_to_device()
-        for epoch in tqdm(range(num_epochs), desc="training_verbs"):
+        os.mkdir(os.path.join(model_save_path, "verbs"))
+        os.mkdir(os.path.join(model_save_path, "nouns"))
+        verb_save_path = Path(model_save_path) / "verbs"
+        noun_save_path = Path(model_save_path) / "nouns"
+        log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
+
+        LOG.info("---------------- ### PHASE 1: TRAINING VERBS ### ----------------")
+        for epoch in tqdm(range(num_epochs)):
             if self.ddp:
                 self.train_loader.sampler.set_epoch(epoch)
             train_loss_verb, _, train_acc_verb, _ = self._train(
@@ -409,7 +428,7 @@ class EpicActionRecognitionModule(object):
             self.train_loss_history.append(train_loss_verb)
             self.train_accuracy_history.append(train_acc_verb)
 
-            if epoch % 10 == 0:
+            if epoch % log_every_n_steps == 0:
                 if self.ddp:
                     self.val_loader.sampler.set_epoch(epoch)
                 val_loss_verb, _, val_acc_verb, _ = self._validate(
@@ -424,13 +443,60 @@ class EpicActionRecognitionModule(object):
                     + f" Train Accuracy: {train_acc_verb:4f}"
                     + f" Validation Accuracy: {val_acc_verb:.4f}"
                 )
+                self.save_model(epoch + 1, verb_save_path)
+                if self.early_stopping(val_loss_noun, val_loss_noun):
+                    break
 
         # Write training stats for analysis
         train_stats = {
             "accuracy": self.train_accuracy_history,
             "loss": self.train_loss_history,
         }
-        LOG.info("Finished training")
-        fname = os.path.join(model_save_path, "train_stats.pkl")
+        fname = os.path.join(model_save_path, "train_stats_verbs.pkl")
         write_pickle(train_stats, fname)
-        self.save_model(num_epochs)
+        self.save_model(num_epochs, verb_save_path)
+        LOG.info("Finished verb training")
+
+        torch.cuda.empty_cache()
+        self.train_loss_history = []
+        self.train_accuracy_history = []
+        self.validation_loss_history = []
+        self.validation_accuracy_history = []
+        self.load_models_to_device()
+        LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
+        for epoch in tqdm(range(num_epochs)):
+            if self.ddp:
+                self.train_loader.sampler.set_epoch(epoch)
+            _, train_loss_noun, _, train_acc_noun = self._train(
+                self.train_loader, "noun_class"
+            )
+            self.train_loss_history.append(train_loss_noun)
+            self.train_accuracy_history.append(train_acc_noun)
+
+            if epoch % log_every_n_steps == 0:
+                if self.ddp:
+                    self.val_loader.sampler.set_epoch(epoch)
+                _, val_loss_noun, _, val_acc_noun = self._validate(
+                    self.val_loader, "noun_class"
+                )
+                self.validation_loss_history.append(val_loss_noun)
+                self.validation_accuracy_history.append(val_acc_noun)
+                LOG.info(
+                    f"Epoch:{epoch + 1}"
+                    + f" Train Loss: {train_loss_noun}"
+                    + f" Val Loss: {val_loss_noun}"
+                    + f" Train Accuracy: {train_acc_noun:4f}"
+                    + f" Validation Accuracy: {val_acc_noun:.4f}"
+                )
+                self.save_model(epoch + 1, noun_save_path)
+                if self.early_stopping(val_loss_noun, val_acc_noun):
+                    break
+
+        train_stats = {
+            "accuracy": self.train_accuracy_history,
+            "loss": self.train_loss_history,
+        }
+        fname = os.path.join(model_save_path, "train_stats_nouns.pkl")
+        write_pickle(train_stats, fname)
+        self.save_model(num_epochs, noun_save_path)
+        LOG.info("Finished noun training")
