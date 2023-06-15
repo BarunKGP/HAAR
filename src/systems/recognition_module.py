@@ -448,7 +448,7 @@ class EpicActionRecognitionModule(object):
                     + f" Validation Accuracy: {val_acc_verb:.4f}"
                 )
                 self.save_model(epoch + 1, verb_save_path)
-                if self.early_stopping(val_loss_noun, val_loss_noun):
+                if self.early_stopping(val_loss_verb, val_acc_verb):
                     break
 
         # Write training stats for analysis
