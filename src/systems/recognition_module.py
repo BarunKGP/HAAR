@@ -471,8 +471,8 @@ class EpicActionRecognitionModule(object):
             "val_loss": self.validation_loss_history,
         }
         fname = os.path.join(model_save_path, "train_stats_verbs.pkl")
-        write_pickle(train_stats, fname)
-        self.save_model(num_epochs, verb_save_path)
+        # write_pickle(train_stats, fname)
+        # self.save_model(num_epochs, verb_save_path)
         LOG.info("Finished verb training")
 
         torch.cuda.empty_cache()
@@ -517,6 +517,6 @@ class EpicActionRecognitionModule(object):
             "val_loss": self.validation_loss_history,
         }
         fname = os.path.join(model_save_path, "train_stats_nouns.pkl")
-        write_pickle(train_stats, fname)
-        self.save_model(num_epochs, noun_save_path)
+        # write_pickle(train_stats, fname)
+        # self.save_model(num_epochs, noun_save_path)
         LOG.info("Finished noun training")
