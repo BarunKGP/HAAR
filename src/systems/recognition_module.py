@@ -278,9 +278,10 @@ class EpicActionRecognitionModule(object):
             train_acc_meter.update(batch_acc, batch_size)
             train_loss_meter.update(batch_loss.item(), batch_size)
 
-            self.backprop(
-                self.verb_model if key == "verb_class" else self.noun_model, batch_loss
-            )
+            if key == "verb_class":
+                self.backprop(self.verb_model, batch_loss)
+            else:
+                self.backprop(self.noun_model, batch_loss)
             break
 
         return (
@@ -357,7 +358,8 @@ class EpicActionRecognitionModule(object):
         self.opt.step()
 
     def compute_accuracy(self, preds, labels):
-        # print(f"preds device = {preds.device}, labels device = {labels.device}")
+        print(f"labels = {labels}")
+        print(f"predictions = {preds}")
         with torch.no_grad():
             preds = torch.argmax(preds, dim=1)
             correct = (preds == labels).float().sum().item()
@@ -463,8 +465,10 @@ class EpicActionRecognitionModule(object):
 
         # Write training stats for analysis
         train_stats = {
-            "accuracy": self.train_accuracy_history,
-            "loss": self.train_loss_history,
+            "train_accuracy": self.train_accuracy_history,
+            "train_loss": self.train_loss_history,
+            "val_accuracy": self.validation_accuracy_history,
+            "val_loss": self.validation_loss_history,
         }
         fname = os.path.join(model_save_path, "train_stats_verbs.pkl")
         write_pickle(train_stats, fname)
@@ -507,8 +511,10 @@ class EpicActionRecognitionModule(object):
                     break
 
         train_stats = {
-            "accuracy": self.train_accuracy_history,
-            "loss": self.train_loss_history,
+            "train_accuracy": self.train_accuracy_history,
+            "train_loss": self.train_loss_history,
+            "val_accuracy": self.validation_accuracy_history,
+            "val_loss": self.validation_loss_history,
         }
         fname = os.path.join(model_save_path, "train_stats_nouns.pkl")
         write_pickle(train_stats, fname)
