@@ -41,7 +41,7 @@ def strip_model_prefix(state_dict):
 
 def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
     # output_dim: int = sum([class_count for _, class_count in TASK_CLASS_COUNTS])
-    LOG.debug("Assigning model state...")
+    LOG.info(f'GPU rank = {int(os.environ["LOCAL_RANK"])}')
     if modality in ["rgb", "flow"]:
         if cfg.model.type == "TSM":  # type: ignore
             model = TSM(
@@ -77,7 +77,7 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
                 # that out.
                 LOG.info("Stripping 'model' prefix from pretrained state_dict keys")
                 sd = strip_model_prefix(state_dict["state_dict"])
-
+                LOG.info("Stripped model prefix. Adding new classification head")
                 # Change shape of final linear layer
                 sd["new_fc.weight"] = torch.rand([1024, 2048], requires_grad=True)
                 sd["new_fc.bias"] = torch.rand(1024, requires_grad=True)
