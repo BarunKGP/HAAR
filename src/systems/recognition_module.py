@@ -367,6 +367,7 @@ class EpicActionRecognitionModule(object):
         if self.ddp:
             if verb:
                 self.verb_model = DDP(self.verb_model.to(self.device), device_ids=[self.device])  # type: ignore
+                LOG.info("Loaded DDP verb model")
             else:
                 self.noun_model = DDP(self.noun_model.to(self.device), device_ids=[self.device])  # type: ignore
         else:
@@ -379,6 +380,7 @@ class EpicActionRecognitionModule(object):
             self.flow_model.train()
             self.verb_model.train()
             self.noun_model.train()
+            LOG.info("Set all models to train mode")
         else:
             self.rgb_model.eval()
             self.flow_model.eval()
