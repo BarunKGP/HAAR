@@ -45,4 +45,7 @@ def prepare_distributed_sampler(
 def ddp_setup(backend="nccl"):
     init_process_group(backend=backend)
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-    os.environ["NCCL_SOCKET_IFNAME"] = "eno"
+    os.environ["NCCL_SOCKET_IFNAME"] = "eno1"
+    # debugging
+    os.environ["NCCL_DEBUG"] = "INFO"
+    os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
