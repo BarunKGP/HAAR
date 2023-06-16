@@ -77,11 +77,11 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
                 # that out.
                 LOG.info("Stripping 'model' prefix from pretrained state_dict keys")
                 sd = strip_model_prefix(state_dict["state_dict"])
-                LOG.info("Stripped model prefix. Adding new classification head")
                 # Change shape of final linear layer
                 sd["new_fc.weight"] = torch.rand([1024, 2048], requires_grad=True)
                 sd["new_fc.bias"] = torch.rand(1024, requires_grad=True)
                 missing, unexpected = model.load_state_dict(sd, strict=False)
+                LOG.info("Added new classification head")
                 if len(missing) > 0:
                     LOG.warning(f"Missing keys in checkpoint: {missing}")
                 if len(unexpected) > 0:
@@ -115,17 +115,17 @@ class EpicActionRecognitionModule(object):
         self.test_loader = datamodule.test_dataloader(rank=rank)
 
         self.narration_model = load_model(self.cfg, modality="narration")
+        self.rgb_model = load_model(self.cfg, modality="rgb")
+        self.flow_model = load_model(self.cfg, modality="flow")
+
         self.verb_map = get_word_map(self.cfg.data.verb_loc)
         self.noun_map = get_word_map(self.cfg.data.noun_loc)
         self.verb_embeddings = self.get_embeddings("verb")
         self.noun_embeddings = self.get_embeddings("noun")
         self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
         self.noun_one_hot = F.one_hot(torch.arange(0, NUM_NOUNS))
-
         self.verb_model = AttentionModel(self.verb_embeddings, self.verb_map)
         self.noun_model = AttentionModel(self.noun_embeddings, self.noun_map)
-        self.rgb_model = load_model(self.cfg, modality="rgb")
-        self.flow_model = load_model(self.cfg, modality="flow")
 
         # self.debug()
         self.opt = self.get_optimizer()
