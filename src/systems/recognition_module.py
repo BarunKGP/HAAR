@@ -419,6 +419,7 @@ class EpicActionRecognitionModule(object):
         noun_save_path = model_save_path / "nouns"
         verb_save_path.mkdir(parents=True, exist_ok=True)
         noun_save_path.mkdir(parents=True, exist_ok=True)
+        LOG.info("Created snapshot paths for verbs and nouns")
         log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
 
         LOG.info("---------------- ### PHASE 1: TRAINING VERBS ### ----------------")
