@@ -17,6 +17,9 @@ LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/train.log")
 @hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
 def main(cfg: DictConfig):
     LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
+    ddp = cfg.learning.get("ddp", False)
+    if ddp:
+        init_process_group(backend=cfg.learning.ddp.backend)
     data_module = EpicActionRecognitionDataModule(cfg)
 
     # debug
@@ -38,9 +41,6 @@ def main(cfg: DictConfig):
             delattr(system, "example_input_array")
         except AttributeError:
             pass
-    ddp = cfg.learning.get("ddp", False)
-    if ddp:
-        init_process_group(backend=cfg.learning.ddp.backend)
     system.run_training_loop(cfg.trainer.max_epochs, Path(cfg.model.save_path))
     if ddp:
         destroy_process_group()
