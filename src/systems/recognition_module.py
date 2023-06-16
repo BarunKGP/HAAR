@@ -361,6 +361,7 @@ class EpicActionRecognitionModule(object):
         return loss
 
     def load_models_to_device(self, train=True, verb=True):
+        LOG.info(f"device={self.device}")
         self.rgb_model = self.rgb_model.to(self.device)
         self.flow_model = self.flow_model.to(self.device)
         self.narration_model = self.narration_model.to(self.device)
