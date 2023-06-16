@@ -19,7 +19,7 @@ def main(cfg: DictConfig):
     LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
     ddp = cfg.learning.get("ddp", False)
     if ddp:
-        init_process_group(backend=cfg.learning.ddp.backend)
+        ddp_setup(cfg.learning.ddp.backend)
     data_module = EpicActionRecognitionDataModule(cfg)
 
     # debug
