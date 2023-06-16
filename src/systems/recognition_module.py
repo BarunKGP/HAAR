@@ -322,16 +322,16 @@ class EpicActionRecognitionModule(object):
 
         # Predictions
         #! Should use DDP model
-        if self.ddp:
-            if key == "verb_class":
-                predictions = self.verb_model.module(feats, labels)
-            else:
-                predictions = self.noun_model.module(feats, labels)
+        # if self.ddp:
+        #     if key == "verb_class":
+        #         predictions = self.verb_model.module(feats, labels)
+        #     else:
+        #         predictions = self.noun_model.module(feats, labels)
+        # else:
+        if key == "verb_class":
+            predictions = self.verb_model(feats, labels)
         else:
-            if key == "verb_class":
-                predictions = self.verb_model(feats, labels)
-            else:
-                predictions = self.noun_model(feats, labels)
+            predictions = self.noun_model(feats, labels)
         predictions = predictions.cpu()
 
         # Compute loss and accuracy
@@ -364,19 +364,18 @@ class EpicActionRecognitionModule(object):
         self.rgb_model = self.rgb_model.to(self.device)
         self.flow_model = self.flow_model.to(self.device)
         self.narration_model = self.narration_model.to(self.device)
-        LOG.info("loaded feature extractors")
-        if self.ddp:
-            LOG.info("DDP mode: converting verbs to DDP model")
-            if verb:
-                self.ddp_model = DDP(self.verb_model.to(self.device), device_ids=[self.device])  # type: ignore
+        if verb:
+            self.verb_model = self.verb_model.to(self.device)
+            if self.ddp:
+                LOG.info("DDP mode: converting verbs to DDP model")
+                self.verb_model = DDP(self.verb_model, device_ids=[self.device])  # type: ignore
                 LOG.info("Loaded DDP verb model")
-            else:
-                self.noun_model = DDP(self.noun_model.to(self.device), device_ids=[self.device])  # type: ignore
         else:
-            if verb:
-                self.verb_model = self.verb_model.to(self.device)
-            else:
-                self.noun_model = self.noun_model.to(self.device)
+            self.noun_model = self.noun_model.to(self.device)
+            if self.ddp:
+                self.noun_model = DDP(self.noun_model, device_ids=[self.device])  # type: ignore
+        LOG.info("Loaded models")
+
         if train:
             self.rgb_model.train()
             self.flow_model.train()
