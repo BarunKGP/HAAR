@@ -62,6 +62,9 @@ learning:
     type: SGD
     momentum: 0.9
     weight_decay: 5e-4
+  ddp:
+    gpus: 3
+    backend: 'nccl'
   lr: 0.01
   lr_scheduler:
     type: StepLR

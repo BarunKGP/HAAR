@@ -13,10 +13,6 @@ from torch.optim import SGD, Adam
 from constants import (
     NUM_NOUNS,
     NUM_VERBS,
-    TRAIN_PICKLE,
-    TEST_PICKLE,
-    BATCH_SIZE,
-    PICKLE_ROOT,
 )
 from models.tsm import TSM
 from models.models import AttentionModel, WordEmbeddings
@@ -24,7 +20,6 @@ from tqdm import tqdm
 from frame_loader import FrameLoader
 from systems.data_module import EpicActionRecognitionDataModule
 from utils import ActionMeter, get_device, get_loggers, write_pickle
-from torch.utils.data import DataLoader
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -318,8 +313,7 @@ class EpicActionRecognitionModule(object):
         rgb, flow = batch
         rgb_images, metadata = rgb  # rgb and flow metadata are the same
         flow_images = flow[0]
-        word_class = metadata[key]
-        print(f"key = {key}, word_class = {word_class}")
+        labels = metadata[key]
         text = metadata["narration"]
 
         # Feature extraction
@@ -332,19 +326,19 @@ class EpicActionRecognitionModule(object):
         #! Should use DDP model
         if self.ddp:
             if key == "verb_class":
-                predictions = self.verb_model.module(feats, word_class)
+                predictions = self.verb_model.module(feats, labels)
             else:
-                predictions = self.noun_model.module(feats, word_class)
+                predictions = self.noun_model.module(feats, labels)
         else:
             if key == "verb_class":
-                predictions = self.verb_model(feats, word_class)
+                predictions = self.verb_model(feats, labels)
             else:
-                predictions = self.noun_model(feats, word_class)
+                predictions = self.noun_model(feats, labels)
         predictions = predictions.cpu()
 
         # Compute loss and accuracy
-        batch_acc = self.compute_accuracy(predictions, word_class)
-        batch_loss = self.compute_loss(predictions, word_class)
+        batch_acc = self.compute_accuracy(predictions, labels)
+        batch_loss = self.compute_loss(predictions, labels)
 
         return batch_acc, batch_loss
 
@@ -355,14 +349,9 @@ class EpicActionRecognitionModule(object):
         self.opt.step()
 
     def compute_accuracy(self, preds, labels):
-        print(f"labels = {labels}")
-        print(f"predictions = {torch.argmax(preds, dim=1)}")
-        print(f"preds_shape = {preds.size()}")
-
         with torch.no_grad():
             preds = torch.argmax(preds, dim=1)
             correct = (preds == labels).float().sum().item()
-            print(f"correct = {correct}")
             batch_accuracy = correct / len(preds)
         return batch_accuracy
 
@@ -380,7 +369,7 @@ class EpicActionRecognitionModule(object):
             self.verb_model = self.verb_model.to(self.device)
         else:
             self.noun_model = self.noun_model.to(self.device)
-        if self.cfg.learning.get("ddp", False):
+        if self.ddp:
             if verb:
                 self.verb_model = DDP(self.verb_model, device_ids=[self.device])  # type: ignore
             else:
@@ -430,8 +419,6 @@ class EpicActionRecognitionModule(object):
         noun_save_path = model_save_path / "nouns"
         verb_save_path.mkdir(parents=True, exist_ok=True)
         noun_save_path.mkdir(parents=True, exist_ok=True)
-        # os.mkdir(verb_save_path)
-        # os.mkdir(noun_save_path)
         log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
 
         LOG.info("---------------- ### PHASE 1: TRAINING VERBS ### ----------------")

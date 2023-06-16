@@ -9,6 +9,7 @@ from datasets.haar_dataset import HaarDataset
 from torchvision.transforms import Compose
 from torch.utils.data import ConcatDataset, DataLoader
 from mp_utils import prepare_distributed_sampler
+from torch.utils.data.distributed import DistributedSampler
 from transforms import (
     ExtractTimeFromChannel,
     GroupCenterCrop,
@@ -134,15 +135,22 @@ class EpicActionRecognitionDataModule(object):
         LOG.info(f"Training dataset size: {len(dataset)}")
 
         if self.ddp:
-            assert rank is not None, "rank must be specified for DDP."
-            return prepare_distributed_sampler(
-                dataset=dataset,
-                rank=rank,
-                world_size=self.cfg.learning.ddp.world_size,
+            # assert rank is not None, "rank must be specified for DDP."
+            return DataLoader(
                 batch_size=self.cfg.learning.batch_size,
+                shuffle=False,
                 num_workers=self.cfg.data.worker_count,
                 pin_memory=self.cfg.data.pin_memory,
+                sampler=DistributedSampler(dataset),
             )
+            # return prepare_distributed_sampler(
+            #     dataset=dataset,
+            #     rank=rank,
+            #     world_size=self.cfg.learning.ddp.world_size,
+            #     batch_size=self.cfg.learning.batch_size,
+            #     num_workers=self.cfg.data.worker_count,
+            #     pin_memory=self.cfg.data.pin_memory,
+            # )
         return DataLoader(
             dataset=dataset,
             batch_size=self.cfg.learning.batch_size,
@@ -173,15 +181,22 @@ class EpicActionRecognitionDataModule(object):
         LOG.info(f"Validation dataset size: {len(dataset)}")
 
         if self.ddp:
-            assert rank is not None, "rank must be specified for DDP."
-            return prepare_distributed_sampler(
-                dataset=dataset,
-                rank=rank,
-                world_size=self.cfg.learning.ddp.world_size,
+            return DataLoader(
                 batch_size=self.cfg.learning.batch_size,
+                shuffle=False,
                 num_workers=self.cfg.data.worker_count,
                 pin_memory=self.cfg.data.pin_memory,
+                sampler=DistributedSampler(dataset),
             )
+            # assert rank is not None, "rank must be specified for DDP."
+            # return prepare_distributed_sampler(
+            #     dataset=dataset,
+            #     rank=rank,
+            #     world_size=self.cfg.learning.ddp.world_size,
+            #     batch_size=self.cfg.learning.batch_size,
+            #     num_workers=self.cfg.data.worker_count,
+            #     pin_memory=self.cfg.data.pin_memory,
+            # )
         return DataLoader(
             dataset=dataset,
             batch_size=self.cfg.learning.batch_size,
@@ -213,15 +228,22 @@ class EpicActionRecognitionDataModule(object):
         LOG.info(f"Test dataset size: {len(dataset)}")
 
         if self.ddp:
-            assert rank is not None, "rank must be specified for DDP."
-            return prepare_distributed_sampler(
-                dataset=dataset,
-                rank=rank,
-                world_size=self.cfg.learning.ddp.world_size,
+            return DataLoader(
                 batch_size=self.cfg.learning.batch_size,
+                shuffle=False,
                 num_workers=self.cfg.data.worker_count,
                 pin_memory=self.cfg.data.pin_memory,
+                sampler=DistributedSampler(dataset),
             )
+            # assert rank is not None, "rank must be specified for DDP."
+            # return prepare_distributed_sampler(
+            #     dataset=dataset,
+            #     rank=rank,
+            #     world_size=self.cfg.learning.ddp.world_size,
+            #     batch_size=self.cfg.learning.batch_size,
+            #     num_workers=self.cfg.data.worker_count,
+            #     pin_memory=self.cfg.data.pin_memory,
+            # )
         return DataLoader(
             dataset=dataset,
             batch_size=self.cfg.learning.batch_size,

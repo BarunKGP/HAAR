@@ -41,7 +41,7 @@ def main(cfg: DictConfig):
     ddp = cfg.trainer.get("ddp", False)
     if ddp:
         ddp_setup()
-    system.run_training_loop(1, Path(cfg.model.save_path))
+    system.run_training_loop(cfg.trainer.max_epochs, Path(cfg.model.save_path))
     if ddp:
         destroy_process_group()
     LOG.info("Training completed!")
