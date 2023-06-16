@@ -49,4 +49,4 @@ def ddp_setup(backend="nccl"):
     # debugging
     os.environ["NCCL_DEBUG"] = "INFO"
     os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
-    os.environ["HYDRA_FULL_ERROR"] = "1"
+    # os.environ["HYDRA_FULL_ERROR"] = "1"
