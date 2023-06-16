@@ -3,7 +3,7 @@ import sys
 from omegaconf import DictConfig, OmegaConf
 import hydra
 from mp_utils import ddp_setup
-from torch.distributed import destroy_process_group
+from torch.distributed import destroy_process_group, init_process_group
 
 from systems.recognition_module import (
     EpicActionRecognitionDataModule,
@@ -40,7 +40,7 @@ def main(cfg: DictConfig):
             pass
     ddp = cfg.trainer.get("ddp", False)
     if ddp:
-        ddp_setup()
+        init_process_group(backend=cfg.learning.ddp.backend)
     system.run_training_loop(cfg.trainer.max_epochs, Path(cfg.model.save_path))
     if ddp:
         destroy_process_group()
