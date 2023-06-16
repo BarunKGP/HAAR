@@ -161,12 +161,12 @@ class EpicActionRecognitionModule(object):
             raise Exception('Invalid key: choose either "noun" or "verb"')
 
     def get_optimizer(self):
-        if self.ddp:
-            att_model_verb = self.verb_model.module
-            att_model_noun = self.noun_model.module
-        else:
-            att_model_verb = self.verb_model
-            att_model_noun = self.noun_model
+        # if self.ddp:
+        #     att_model_verb = self.verb_model.module
+        #     att_model_noun = self.noun_model.module
+        # else:
+        att_model_verb = self.verb_model
+        att_model_noun = self.noun_model
         if "optimizer" in self.cfg.learning:
             cfg = self.cfg.learning.optimizer
             if cfg["type"] == "Adam":
