@@ -446,7 +446,11 @@ class EpicActionRecognitionModule(object):
                     + f" Train Accuracy: {train_acc_verb:4f}"
                     + f" Validation Accuracy: {val_acc_verb:.4f}"
                 )
-                self.save_model(epoch + 1, verb_save_path)
+                if self.device == 1:
+                    self.save_model(epoch + 1, verb_save_path)
+                    LOG.info(
+                        f"Saved model state for epoch {epoch + 1} at {verb_save_path}/checkpoint_{epoch + 1}.pt"
+                    )
                 if self.early_stopping(val_loss_verb, val_acc_verb):
                     break
 
