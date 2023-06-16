@@ -137,6 +137,7 @@ class EpicActionRecognitionDataModule(object):
         if self.ddp:
             # assert rank is not None, "rank must be specified for DDP."
             return DataLoader(
+                dataset=dataset,
                 batch_size=self.cfg.learning.batch_size,
                 shuffle=False,
                 num_workers=self.cfg.data.worker_count,
@@ -182,6 +183,7 @@ class EpicActionRecognitionDataModule(object):
 
         if self.ddp:
             return DataLoader(
+                dataset=dataset,
                 batch_size=self.cfg.learning.batch_size,
                 shuffle=False,
                 num_workers=self.cfg.data.worker_count,
@@ -229,6 +231,7 @@ class EpicActionRecognitionDataModule(object):
 
         if self.ddp:
             return DataLoader(
+                dataset=dataset,
                 batch_size=self.cfg.learning.batch_size,
                 shuffle=False,
                 num_workers=self.cfg.data.worker_count,
