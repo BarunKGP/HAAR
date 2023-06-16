@@ -81,7 +81,6 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
                 sd["new_fc.weight"] = torch.rand([1024, 2048], requires_grad=True)
                 sd["new_fc.bias"] = torch.rand(1024, requires_grad=True)
                 missing, unexpected = model.load_state_dict(sd, strict=False)
-                LOG.info("Added new classification head")
                 if len(missing) > 0:
                     LOG.warning(f"Missing keys in checkpoint: {missing}")
                 if len(unexpected) > 0:
@@ -370,10 +369,11 @@ class EpicActionRecognitionModule(object):
                 self.verb_model = DDP(self.verb_model.to(self.device), device_ids=[self.device])  # type: ignore
             else:
                 self.noun_model = DDP(self.noun_model.to(self.device), device_ids=[self.device])  # type: ignore
-        if verb:
-            self.verb_model = self.verb_model.to(self.device)
         else:
-            self.noun_model = self.noun_model.to(self.device)
+            if verb:
+                self.verb_model = self.verb_model.to(self.device)
+            else:
+                self.noun_model = self.noun_model.to(self.device)
         if train:
             self.rgb_model.train()
             self.flow_model.train()
