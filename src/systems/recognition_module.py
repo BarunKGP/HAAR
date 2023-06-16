@@ -127,7 +127,6 @@ class EpicActionRecognitionModule(object):
         self.verb_model = AttentionModel(self.verb_embeddings, self.verb_map)
         self.noun_model = AttentionModel(self.noun_embeddings, self.noun_map)
 
-        # self.debug()
         self.opt = self.get_optimizer()
 
         self.train_loss_history = []
@@ -365,15 +364,15 @@ class EpicActionRecognitionModule(object):
         self.rgb_model = self.rgb_model.to(self.device)
         self.flow_model = self.flow_model.to(self.device)
         self.narration_model = self.narration_model.to(self.device)
-        if verb:
-            self.verb_model = self.verb_model.to(self.device)
-        else:
-            self.noun_model = self.noun_model.to(self.device)
         if self.ddp:
             if verb:
                 self.verb_model = DDP(self.verb_model, device_ids=[self.device])  # type: ignore
             else:
                 self.noun_model = DDP(self.noun_model, device_ids=[self.device])  # type: ignore
+        if verb:
+            self.verb_model = self.verb_model.to(self.device)
+        else:
+            self.noun_model = self.noun_model.to(self.device)
         if train:
             self.rgb_model.train()
             self.flow_model.train()

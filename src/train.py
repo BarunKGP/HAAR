@@ -41,6 +41,7 @@ def main(cfg: DictConfig):
             delattr(system, "example_input_array")
         except AttributeError:
             pass
+    LOG.info("Starting training with DDP")
     system.run_training_loop(cfg.trainer.max_epochs, Path(cfg.model.save_path))
     if ddp:
         destroy_process_group()
