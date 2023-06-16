@@ -367,9 +367,9 @@ class EpicActionRecognitionModule(object):
         self.narration_model = self.narration_model.to(self.device)
         if self.ddp:
             if verb:
-                self.verb_model = DDP(self.verb_model, device_ids=[self.device])  # type: ignore
+                self.verb_model = DDP(self.verb_model.to(self.device), device_ids=[self.device])  # type: ignore
             else:
-                self.noun_model = DDP(self.noun_model, device_ids=[self.device])  # type: ignore
+                self.noun_model = DDP(self.noun_model.to(self.device), device_ids=[self.device])  # type: ignore
         if verb:
             self.verb_model = self.verb_model.to(self.device)
         else:
