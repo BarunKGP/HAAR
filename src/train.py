@@ -38,7 +38,7 @@ def main(cfg: DictConfig):
             delattr(system, "example_input_array")
         except AttributeError:
             pass
-    ddp = cfg.trainer.get("ddp", False)
+    ddp = cfg.learning.get("ddp", False)
     if ddp:
         init_process_group(backend=cfg.learning.ddp.backend)
     system.run_training_loop(cfg.trainer.max_epochs, Path(cfg.model.save_path))
