@@ -508,6 +508,7 @@ class EpicActionRecognitionModule(object):
         # self.validation_accuracy_history = []
         # self.load_models_to_device(verb=False)
         LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
+        LOG.info(f"device = {self.device}")
         if self.ddp:
             self.ddp_loop(num_epochs, noun_save_path, log_every_n_steps, "noun_class")
         else:
