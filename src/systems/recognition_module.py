@@ -246,10 +246,10 @@ class EpicActionRecognitionModule(object):
         torch.save(
             {
                 "epoch": epoch,
-                "rgb_model": self.rgb_model.cpu().state_dict(),
-                "flow_model": self.flow_model.cpu().state_dict(),
-                "verb_model": self.verb_model.module().state_dict() if self.ddp else self.verb_model.state_dict(),  # type: ignore
-                "noun_model": self.noun_model.module().state_dict() if self.ddp else self.noun_model.state_dict(),  # type: ignore
+                "rgb_model": self.rgb_model.state_dict(),
+                "flow_model": self.flow_model.state_dict(),
+                "verb_model": self.verb_model.module.state_dict() if self.ddp else self.verb_model.state_dict(),  # type: ignore
+                "noun_model": self.noun_model.module.state_dict() if self.ddp else self.noun_model.state_dict(),  # type: ignore
                 "optimizer": self.opt.state_dict(),
             },
             os.path.join(path, f"checkpoint_{epoch}.pt"),
@@ -378,15 +378,13 @@ class EpicActionRecognitionModule(object):
 
     def load_models_to_device(self, train=True, verb=True):
         LOG.info(f"device={self.device}")
-        self.rgb_model = self.rgb_model.to(self.device)
+        self.rgb_model.to(self.device)
         self.flow_model = self.flow_model.to(self.device)
         self.narration_model = self.narration_model.to(self.device)
         if verb:
             self.verb_model = self.verb_model.to(self.device)
             if self.ddp:
-                LOG.info("DDP mode: converting verbs to DDP model")
                 self.verb_model = DDP(self.verb_model, device_ids=[self.device])  # type: ignore
-                LOG.info("Loaded DDP verb model")
         else:
             self.noun_model = self.noun_model.to(self.device)
             if self.ddp:
