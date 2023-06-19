@@ -71,7 +71,7 @@ learning:
 
 trainer:
   gradient_clip_val: 20
-  max_epochs: 1
+  max_epochs: 100
   early_stopping:
     criterion: 'accuracy'
     threshold: 0.8
