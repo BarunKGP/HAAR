@@ -295,6 +295,9 @@ class EpicActionRecognitionModule(object):
         else:
             model = self.noun_model
         model.eval()
+        LOG.info(
+            f"3. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}, model on {next(model.parameters()).device}"
+        )
         val_loss_meter = ActionMeter("val loss")
         val_acc_meter = ActionMeter("val accuracy")
         batch_size = self.cfg.learning.batch_size
@@ -445,7 +448,7 @@ class EpicActionRecognitionModule(object):
                 if self.early_stopping(val_loss, val_acc):
                     break
 
-    def run_training_loop(self, num_epochs: int = 50, model_save_path: Path = None):
+    def run_training_loop(self, num_epochs: int = 50, model_save_path=None):
         """Run the main training loop for the model.
         May need to run separate loops for train/test.
 
@@ -470,6 +473,9 @@ class EpicActionRecognitionModule(object):
         if self.ddp:
             self.ddp_loop(num_epochs, verb_save_path, log_every_n_steps, "verb_class")
         else:
+            LOG.info(
+                f"4. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
+            )
             for epoch in tqdm(range(num_epochs)):
                 # if self.ddp:
                 #     self.train_loader.sampler.set_epoch(epoch)
@@ -478,6 +484,10 @@ class EpicActionRecognitionModule(object):
                 )
                 self.train_loss_history.append(train_loss_verb)
                 self.train_accuracy_history.append(train_acc_verb)
+
+                LOG.info(
+                    f"5. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
+                )
 
                 if epoch % log_every_n_steps == 0:
                     # if self.ddp:
@@ -501,6 +511,9 @@ class EpicActionRecognitionModule(object):
                     )
                     if self.early_stopping(val_loss_verb, val_acc_verb):
                         break
+                LOG.info(
+                    f"6. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
+                )
 
         # # Write training stats for analysis
         # train_stats = {
