@@ -329,11 +329,11 @@ class EpicActionRecognitionModule(object):
             predictions = self.verb_model(feats, labels)
         else:
             predictions = self.noun_model(feats, labels)
-        # predictions = predictions.cpu()
+        predictions = predictions.cpu()
 
         # Compute loss and accuracy
-        batch_acc = self.compute_accuracy(predictions.cpu(), labels)
-        batch_loss = self.compute_loss(predictions.cpu(), labels)
+        batch_acc = self.compute_accuracy(predictions, labels)
+        batch_loss = self.compute_loss(predictions, labels)
 
         return batch_acc, batch_loss
 
@@ -444,7 +444,6 @@ class EpicActionRecognitionModule(object):
         if model_save_path is None:
             model_save_path = self.cfg.save_path  # ? configure a default save_path?
         torch.cuda.empty_cache()
-        self.device = "cuda:0"  #! Only for noun training on a separate GPU
         self.load_models_to_device(verb=True)
         verb_save_path = model_save_path / "verbs"
         noun_save_path = model_save_path / "nouns"
@@ -501,12 +500,12 @@ class EpicActionRecognitionModule(object):
         # # self.save_model(num_epochs, verb_save_path)
         # LOG.info("Finished verb training")
 
-        # torch.cuda.empty_cache()
-        # self.train_loss_history = []
-        # self.train_accuracy_history = []
-        # self.validation_loss_history = []
-        # self.validation_accuracy_history = []
-        # self.load_models_to_device(verb=False)
+        torch.cuda.empty_cache()
+        self.train_loss_history = []
+        self.train_accuracy_history = []
+        self.validation_loss_history = []
+        self.validation_accuracy_history = []
+        self.load_models_to_device(verb=False)
         LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
         LOG.info(f"device = {self.device}")
         if self.ddp:
