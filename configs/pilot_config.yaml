@@ -6,7 +6,7 @@ data:
   worker_count: 0
   pin_memory: yes
   verb_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_verb_classes.csv
-  noun_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_noun_classes.csv
+  noun_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_noun_classes_v2.csv
   rgb:
     segment_length: 1  # Number of (u, v) pairs in each segment
     train_gulp_dir: ${data._root_gulp_dir}/rgb_train
