@@ -240,9 +240,6 @@ class EpicActionRecognitionModule(object):
                 trained for
             path (Path): path to save the model
         """
-        LOG.info(
-            f"7. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
-        )
         torch.save(
             {
                 "epoch": epoch,
@@ -254,9 +251,6 @@ class EpicActionRecognitionModule(object):
             },
             os.path.join(path, f"checkpoint_{epoch}.pt"),
         )
-        LOG.info(
-            f"8. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
-        )
 
     def _train(self, loader, key):
         """Run the training loop for one epoch.
@@ -266,9 +260,6 @@ class EpicActionRecognitionModule(object):
         Returns:
             (float, float, float, float): average loss and accuracy
         """
-        LOG.info(
-            f"1. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
-        )
         assert key in ["verb_class", "noun_class"], "invalid key"
         train_loss_meter = ActionMeter("train loss")
         train_acc_meter = ActionMeter("train accuracy")
@@ -282,9 +273,6 @@ class EpicActionRecognitionModule(object):
 
             if key == "verb_class":
                 self.backprop(self.verb_model, batch_loss)
-                LOG.info(
-                    f"2. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
-                )
             else:
                 self.backprop(self.noun_model, batch_loss)
             break
@@ -301,9 +289,6 @@ class EpicActionRecognitionModule(object):
         else:
             model = self.noun_model
         model.eval()
-        LOG.info(
-            f"3. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}, model on {next(model.parameters()).device}"
-        )
         val_loss_meter = ActionMeter("val loss")
         val_acc_meter = ActionMeter("val accuracy")
         batch_size = self.cfg.learning.batch_size
@@ -328,9 +313,6 @@ class EpicActionRecognitionModule(object):
         flow_images = flow[0]
         labels = metadata[key]
         text = metadata["narration"]
-        LOG.info(
-            f"device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
-        )
         # Feature extraction
         rgb_feats = self.rgb_model(rgb_images.to(self.device))
         flow_feats = self.flow_model(flow_images.to(self.device))
@@ -377,16 +359,15 @@ class EpicActionRecognitionModule(object):
         return loss
 
     def load_models_to_device(self, train=True, verb=True):
-        LOG.info(f"device={self.device}")
         self.rgb_model.to(self.device)
-        self.flow_model = self.flow_model.to(self.device)
-        self.narration_model = self.narration_model.to(self.device)
+        self.flow_model.to(self.device)
+        self.narration_model.to(self.device)
         if verb:
-            self.verb_model = self.verb_model.to(self.device)
+            self.verb_model.to(self.device)
             if self.ddp:
                 self.verb_model = DDP(self.verb_model, device_ids=[self.device])  # type: ignore
         else:
-            self.noun_model = self.noun_model.to(self.device)
+            self.noun_model.to(self.device)
             if self.ddp:
                 self.noun_model = DDP(self.noun_model, device_ids=[self.device])  # type: ignore
         LOG.info("Loaded models")
@@ -477,25 +458,18 @@ class EpicActionRecognitionModule(object):
         if self.ddp:
             self.ddp_loop(num_epochs, verb_save_path, log_every_n_steps, "verb_class")
         else:
-            LOG.info(
-                f"4. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
-            )
             for epoch in tqdm(range(num_epochs)):
-                # if self.ddp:
-                #     self.train_loader.sampler.set_epoch(epoch)
+                if self.ddp:
+                    self.train_loader.sampler.set_epoch(epoch)
                 train_loss_verb, train_acc_verb = self._train(
                     self.train_loader, "verb_class"
                 )
                 self.train_loss_history.append(train_loss_verb)
                 self.train_accuracy_history.append(train_acc_verb)
 
-                LOG.info(
-                    f"5. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
-                )
-
-                if epoch % log_every_n_steps == 0:
-                    # if self.ddp:
-                    #     self.val_loader.sampler.set_epoch(epoch)
+                if (epoch + 1) % log_every_n_steps == 0:
+                    if self.ddp:
+                        self.val_loader.sampler.set_epoch(epoch)
                     val_loss_verb, val_acc_verb = self._validate(
                         self.val_loader, "verb_class"
                     )
@@ -515,9 +489,6 @@ class EpicActionRecognitionModule(object):
                     )
                     if self.early_stopping(val_loss_verb, val_acc_verb):
                         break
-                LOG.info(
-                    f"6. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
-                )
 
         # # Write training stats for analysis
         # train_stats = {
