@@ -260,6 +260,9 @@ class EpicActionRecognitionModule(object):
         Returns:
             (float, float, float, float): average loss and accuracy
         """
+        LOG.info(
+            f"1. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
+        )
         assert key in ["verb_class", "noun_class"], "invalid key"
         train_loss_meter = ActionMeter("train loss")
         train_acc_meter = ActionMeter("train accuracy")
@@ -273,6 +276,9 @@ class EpicActionRecognitionModule(object):
 
             if key == "verb_class":
                 self.backprop(self.verb_model, batch_loss)
+                LOG.info(
+                    f"2. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
+                )
             else:
                 self.backprop(self.noun_model, batch_loss)
             break
