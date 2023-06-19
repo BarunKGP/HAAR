@@ -334,11 +334,11 @@ class EpicActionRecognitionModule(object):
             predictions = self.verb_model(feats, labels)
         else:
             predictions = self.noun_model(feats, labels)
-        predictions = predictions.cpu()
+        # predictions = predictions.cpu()
 
         # Compute loss and accuracy
-        batch_acc = self.compute_accuracy(predictions, labels)
-        batch_loss = self.compute_loss(predictions, labels)
+        batch_acc = self.compute_accuracy(predictions.cpu(), labels)
+        batch_loss = self.compute_loss(predictions.cpu(), labels)
 
         return batch_acc, batch_loss
 
