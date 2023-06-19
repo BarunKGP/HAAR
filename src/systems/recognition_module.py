@@ -488,63 +488,63 @@ class EpicActionRecognitionModule(object):
                     if self.early_stopping(val_loss_verb, val_acc_verb):
                         break
 
-        # # Write training stats for analysis
-        # train_stats = {
-        #     "train_accuracy": self.train_accuracy_history,
-        #     "train_loss": self.train_loss_history,
-        #     "val_accuracy": self.validation_accuracy_history,
-        #     "val_loss": self.validation_loss_history,
-        # }
-        # fname = os.path.join(model_save_path, "train_stats_verbs.pkl")
-        # # write_pickle(train_stats, fname)
-        # # self.save_model(num_epochs, verb_save_path)
-        LOG.info("Finished verb training")
-
-        torch.cuda.empty_cache()
-        self.train_loss_history = []
-        self.train_accuracy_history = []
-        self.validation_loss_history = []
-        self.validation_accuracy_history = []
-        self.load_models_to_device(verb=False)
-        LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
-        if self.ddp:
-            self.ddp_loop(num_epochs, noun_save_path, log_every_n_steps, "noun_class")
-        else:
-            for epoch in tqdm(range(num_epochs)):
-                # if self.ddp:
-                #     self.train_loader.sampler.set_epoch(epoch)
-                train_loss_noun, train_acc_noun = self._train(
-                    self.train_loader, "noun_class"
-                )
-                self.train_loss_history.append(train_loss_noun)
-                self.train_accuracy_history.append(train_acc_noun)
-
-                if epoch % log_every_n_steps == 0:
-                    # if self.ddp:
-                    #     self.val_loader.sampler.set_epoch(epoch)
-                    val_loss_noun, val_acc_noun = self._validate(
-                        self.val_loader, "noun_class"
-                    )
-                    self.validation_loss_history.append(val_loss_noun)
-                    self.validation_accuracy_history.append(val_acc_noun)
-                    LOG.info(
-                        f"Epoch:{epoch + 1}"
-                        + f" Train Loss: {train_loss_noun}"
-                        + f" Val Loss: {val_loss_noun}"
-                        + f" Train Accuracy: {train_acc_noun:4f}"
-                        + f" Validation Accuracy: {val_acc_noun:.4f}"
-                    )
-                    self.save_model(epoch + 1, noun_save_path)
-                    if self.early_stopping(val_loss_noun, val_acc_noun):
-                        break
-
+        # Write training stats for analysis
         train_stats = {
             "train_accuracy": self.train_accuracy_history,
             "train_loss": self.train_loss_history,
             "val_accuracy": self.validation_accuracy_history,
             "val_loss": self.validation_loss_history,
         }
-        fname = os.path.join(model_save_path, "train_stats_nouns.pkl")
-        # write_pickle(train_stats, fname)
-        # self.save_model(num_epochs, noun_save_path)
-        LOG.info("Finished noun training")
+        fname = os.path.join(model_save_path, "train_stats_verbs.pkl")
+        write_pickle(train_stats, fname)
+        # self.save_model(num_epochs, verb_save_path)
+        LOG.info("Finished verb training")
+
+        # torch.cuda.empty_cache()
+        # self.train_loss_history = []
+        # self.train_accuracy_history = []
+        # self.validation_loss_history = []
+        # self.validation_accuracy_history = []
+        # self.load_models_to_device(verb=False)
+        # LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
+        # if self.ddp:
+        #     self.ddp_loop(num_epochs, noun_save_path, log_every_n_steps, "noun_class")
+        # else:
+        #     for epoch in tqdm(range(num_epochs)):
+        #         # if self.ddp:
+        #         #     self.train_loader.sampler.set_epoch(epoch)
+        #         train_loss_noun, train_acc_noun = self._train(
+        #             self.train_loader, "noun_class"
+        #         )
+        #         self.train_loss_history.append(train_loss_noun)
+        #         self.train_accuracy_history.append(train_acc_noun)
+
+        #         if epoch % log_every_n_steps == 0:
+        #             # if self.ddp:
+        #             #     self.val_loader.sampler.set_epoch(epoch)
+        #             val_loss_noun, val_acc_noun = self._validate(
+        #                 self.val_loader, "noun_class"
+        #             )
+        #             self.validation_loss_history.append(val_loss_noun)
+        #             self.validation_accuracy_history.append(val_acc_noun)
+        #             LOG.info(
+        #                 f"Epoch:{epoch + 1}"
+        #                 + f" Train Loss: {train_loss_noun}"
+        #                 + f" Val Loss: {val_loss_noun}"
+        #                 + f" Train Accuracy: {train_acc_noun:4f}"
+        #                 + f" Validation Accuracy: {val_acc_noun:.4f}"
+        #             )
+        #             self.save_model(epoch + 1, noun_save_path)
+        #             if self.early_stopping(val_loss_noun, val_acc_noun):
+        #                 break
+
+        # train_stats = {
+        #     "train_accuracy": self.train_accuracy_history,
+        #     "train_loss": self.train_loss_history,
+        #     "val_accuracy": self.validation_accuracy_history,
+        #     "val_loss": self.validation_loss_history,
+        # }
+        # fname = os.path.join(model_save_path, "train_stats_nouns.pkl")
+        # # write_pickle(train_stats, fname)
+        # # self.save_model(num_epochs, noun_save_path)
+        # LOG.info("Finished noun training")
