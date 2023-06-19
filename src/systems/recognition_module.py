@@ -41,7 +41,7 @@ def strip_model_prefix(state_dict):
 
 def load_model(cfg: DictConfig, modality: str, output_dim: int = 0):
     # output_dim: int = sum([class_count for _, class_count in TASK_CLASS_COUNTS])
-    LOG.info(f'GPU rank = {int(os.environ["LOCAL_RANK"])}')
+    # LOG.info(f'GPU rank = {int(os.environ["LOCAL_RANK"])}')
     if modality in ["rgb", "flow"]:
         if cfg.model.type == "TSM":  # type: ignore
             model = TSM(
