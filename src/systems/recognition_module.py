@@ -240,6 +240,9 @@ class EpicActionRecognitionModule(object):
                 trained for
             path (Path): path to save the model
         """
+        LOG.info(
+            f"7. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
+        )
         torch.save(
             {
                 "epoch": epoch,
@@ -250,6 +253,9 @@ class EpicActionRecognitionModule(object):
                 "optimizer": self.opt.state_dict(),
             },
             os.path.join(path, f"checkpoint_{epoch}.pt"),
+        )
+        LOG.info(
+            f"8. device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
         )
 
     def _train(self, loader, key):

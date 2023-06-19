@@ -18,9 +18,9 @@ LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/train.log")
 @hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
 def main(cfg: DictConfig):
     LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
-    LOG.info(
-        f"GPU availability: {torch.cuda.is_available()} => device = {get_device()}"
-    )
+    # LOG.info(
+    #     f"GPU availability: {torch.cuda.is_available()} => device = {get_device()}"
+    # )
     ddp = cfg.learning.get("ddp", False)
     if ddp:
         try:
