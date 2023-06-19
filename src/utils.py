@@ -91,7 +91,7 @@ def get_device():
         (str): device to run on
     """
     if torch.cuda.is_available():
-        device = "cuda:1"
+        device = "cuda:0"
     else:
         device = "cpu"
     return device
