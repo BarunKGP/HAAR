@@ -313,7 +313,9 @@ class EpicActionRecognitionModule(object):
         flow_images = flow[0]
         labels = metadata[key]
         text = metadata["narration"]
-
+        LOG.info(
+            f"device = {self.device}, rgb model on {next(self.rgb_model.parameters()).device}"
+        )
         # Feature extraction
         rgb_feats = self.rgb_model(rgb_images.to(self.device))
         flow_feats = self.flow_model(flow_images.to(self.device))
