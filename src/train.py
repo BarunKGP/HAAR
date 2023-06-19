@@ -3,13 +3,14 @@ import sys
 from omegaconf import DictConfig, OmegaConf
 import hydra
 from mp_utils import ddp_setup
+import torch
 from torch.distributed import destroy_process_group, init_process_group
 
 from systems.recognition_module import (
     EpicActionRecognitionDataModule,
     EpicActionRecognitionModule,
 )
-from utils import get_loggers
+from utils import get_device, get_loggers
 
 LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/train.log")
 
@@ -17,6 +18,9 @@ LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/train.log")
 @hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
 def main(cfg: DictConfig):
     LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
+    LOG.info(
+        f"GPU availability: {torch.cuda.is_available()} => device = {get_device()}"
+    )
     ddp = cfg.learning.get("ddp", False)
     if ddp:
         try:
