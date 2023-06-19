@@ -53,7 +53,7 @@ def get_loggers(
         (logging.Logger): logger with all handlers configured
     """
 
-    logger = logging.getLogger(name)
+    logger = logging.getLogger(name + "_noun")
     if filename is not None:
         if filehandler is None:
             filehandler = RotatingFileHandler(
