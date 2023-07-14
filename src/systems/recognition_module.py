@@ -3,13 +3,11 @@
 import sys
 import os
 from pathlib import Path
-from contextlib import closing
+
+# from contextlib import closing
 import socket
 import re
 from omegaconf import DictConfig, OmegaConf
-import hydra
-from traceback import format_exc
-from mp_utils import ddp_setup
 from systems.data_module import EpicActionRecognitionDataModule
 
 import pandas as pd
@@ -36,16 +34,18 @@ from systems.data_module import EpicActionRecognitionDataModule
 from utils import ActionMeter, get_device, get_loggers, write_pickle, log_print
 
 LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/train.log")
-writer = SummaryWriter('data/pilot-01/runs')
+writer = SummaryWriter("data/pilot-01/runs")
+
 
 def get_open_port():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     # s.settimeout(30)
-    s.bind(('', 0))
+    s.bind(("", 0))
     open_port = s.getsockname()[1]
     s.close()
     return open_port
+
 
 def get_word_map(file_loc):
     try:
@@ -60,7 +60,7 @@ def strip_model_prefix(state_dict):
     return {re.sub("^model.", "", k): v for k, v in state_dict.items()}
 
 
-def load_model(cfg: DictConfig, modality: str, output_dim: int = 0, device = 'cpu'):
+def load_model(cfg: DictConfig, modality: str, output_dim: int = 0, device="cpu"):
     # output_dim: int = sum([class_count for _, class_count in TASK_CLASS_COUNTS])
     # LOG.info(f'device = {device}')
     if modality in ["rgb", "flow"]:
@@ -108,7 +108,7 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0, device = 'cp
                     LOG.warning(f"Unexpected keys in checkpoint: {unexpected}")
     elif modality == "narration":
         if type(device) == int:
-            device = 'cuda:' + str(device)
+            device = "cuda:" + str(device)
         model = WordEmbeddings(device=device)
         narr_cfg = cfg.model.get("narration_model", None)
         if narr_cfg and narr_cfg.get("pretrained", False):
@@ -131,16 +131,16 @@ class EpicActionRecognitionModule(object):
         self.noun_map = get_word_map(self.cfg.data.noun_loc)
         self.verb_one_hot = F.one_hot(torch.arange(0, NUM_VERBS))
         self.noun_one_hot = F.one_hot(torch.arange(0, NUM_NOUNS))
-        
+
         self.verb_embeddings = None
         self.noun_embeddings = None
         self.rgb_model = None
         self.flow_model = None
         self.narration_model = None
-        self.verb_model = None
-        self.noun_model = None
-        # self.train_loader, self.val_loader, self.test_loader = None, None, None
-        
+        # self.verb_model = None
+        # self.noun_model = None
+        self.opt = None
+
         self.ddp = self.cfg.learning.get("ddp", False)
         if self.ddp:
             self.device = None
@@ -160,6 +160,9 @@ class EpicActionRecognitionModule(object):
         print(torch.cuda.memory_summary())
 
     def get_embeddings(self, key):
+        assert (
+            self.narration_model is not None
+        ), "Narration model has not been initialized"
         if key.lower() == "verb":
             text = self.verb_map["key"].values.tolist()
         elif key.lower() == "noun":
@@ -178,13 +181,13 @@ class EpicActionRecognitionModule(object):
             raise Exception('Invalid key: choose either "noun" or "verb"')
 
     def get_optimizer(self, key: str = "verb_class"):
-        # if self.ddp:
-        #     att_model_verb = self.verb_model.module
-        #     att_model_noun = self.noun_model.module
-        # else:
-        # att_model_verb = self.verb_model
-        # att_model_noun = self.noun_model
         model_ref = {"verb_class": self.verb_model, "noun_class": self.noun_model}
+        assert (
+            model_ref[key] is not None
+        ), "AttentionModel has not been initialized for this key"
+        assert self.rgb_model is not None, "RGB model has not been initialized"
+        assert self.flow_model is not None, "FLow model has not been initialized"
+
         if "optimizer" in self.cfg.learning:
             cfg = self.cfg.learning.optimizer
             if cfg["type"] == "Adam":
@@ -260,6 +263,12 @@ class EpicActionRecognitionModule(object):
                 trained for
             path (Path): path to save the model
         """
+        assert self.rgb_model is not None, "RGB model has not been initialized"
+        assert self.flow_model is not None, "FLow model has not been initialized"
+        assert (
+            self.narration_model is not None
+        ), "Narration model has not been initialized"
+        assert self.opt is not None, "Optimizer has not been initialized"
         torch.save(
             {
                 "epoch": epoch,
@@ -287,7 +296,7 @@ class EpicActionRecognitionModule(object):
         for batch in tqdm(
             loader, desc="train_loader", total=len(loader), position=0, leave=True
         ):
-            batch_acc, batch_loss = self._step(batch, model)
+            batch_acc, batch_loss = self._step(batch, model, key)
             train_acc_meter.update(batch_acc, batch_size)
             train_loss_meter.update(batch_loss.item(), batch_size)
 
@@ -296,7 +305,6 @@ class EpicActionRecognitionModule(object):
             else:
                 self.backprop(self.noun_model, batch_loss)
 
-
         return (
             train_loss_meter.get_average_values(),
             train_acc_meter.get_average_values(),
@@ -304,10 +312,17 @@ class EpicActionRecognitionModule(object):
 
     def _validate(self, loader, key):
         assert key in ["verb_class", "noun_class"], "invalid key"
+
         torch.cuda.empty_cache()
         if key == "verb_class":
+            assert (
+                self.verb_model is not None
+            ), "AttentionModel has not been initialized"
             self.verb_model.eval()
         else:
+            assert (
+                self.noun_model is not None
+            ), "AttentionModel has not been initialized"
             self.noun_model.eval()
         model = self.verb_model if key == "verb_class" else self.noun_model
         val_loss_meter = ActionMeter("val loss")
@@ -315,7 +330,7 @@ class EpicActionRecognitionModule(object):
         batch_size = self.cfg.learning.batch_size
         with torch.no_grad():
             for batch in tqdm(loader, desc="val_loader", total=len(loader)):  # type: ignore
-                batch_acc, batch_loss = self._step(batch, model)
+                batch_acc, batch_loss = self._step(batch, model, key)
                 val_acc_meter.update(batch_acc, batch_size)
                 val_loss_meter.update(batch_loss.item(), batch_size)
 
@@ -328,10 +343,15 @@ class EpicActionRecognitionModule(object):
             val_acc_meter.get_average_values(),
         )
 
-    def _step(self, batch, model):
+    def _step(self, batch, model, key):
         """One step of the optimization process. This
         method is run in all of train/val/test
         """
+        assert self.rgb_model is not None, "RGB model has not been initialized"
+        assert self.flow_model is not None, "FLow model has not been initialized"
+        assert (
+            self.narration_model is not None
+        ), "Narration model has not been initialized"
         rgb, flow = batch
         rgb_images, metadata = rgb  # rgb and flow metadata are the same
         flow_images = flow[0]
@@ -359,6 +379,7 @@ class EpicActionRecognitionModule(object):
         return batch_acc, batch_loss
 
     def backprop(self, model, loss):
+        assert self.opt is not None, "Optimizer has not been initialized"
         model.zero_grad()
         loss.backward()
         clip_grad_norm_(model.parameters(), self.cfg.trainer.gradient_clip_val)
@@ -377,41 +398,33 @@ class EpicActionRecognitionModule(object):
             loss = loss / len(preds)
         return loss
 
-    def load_models_to_device(self, device=None, train=True, verb=True):
+    def load_models_to_device(self, device=None, verb=True):
         if device is None:
             device = self.device
-        self.narration_model = load_model(self.cfg, modality="narration", device = device)
-        self.rgb_model = load_model(self.cfg, modality="rgb", device = device)
-        self.flow_model = load_model(self.cfg, modality="flow", device = device)
+        self.narration_model = load_model(self.cfg, modality="narration", device=device)
+        self.rgb_model = load_model(self.cfg, modality="rgb", device=device)
+        self.flow_model = load_model(self.cfg, modality="flow", device=device)
 
         self.rgb_model.to(device)
         self.flow_model.to(device)
         # self.narration_model.to(device)
-        if train:
-            self.rgb_model.train()
-            self.flow_model.train()
-        else:
-            self.rgb_model.eval()
-            self.flow_model.eval()
-            model.eval()
+        self.rgb_model.train()
+        self.flow_model.train()
 
         if verb:
             self.verb_embeddings = self.get_embeddings("verb")
-            self.verb_model = AttentionModel(self.verb_embeddings, self.verb_map, device=device).to(device)
-            if train:
-                self.verb_model.train()
-            else:
-                self.verb_model.eval()
+            self.verb_model = AttentionModel(
+                self.verb_embeddings, self.verb_map, device=device
+            ).to(device)
+            self.verb_model.train()
         else:
             self.noun_embeddings = self.get_embeddings("noun")
-            self.noun_model = AttentionModel(self.noun_embeddings, self.noun_map, device=device).to(device)
-            if train:
-                self.noun_model.train()
-            else:
-                self.noun_model.eval()
-        
-        LOG.info("Loaded models to device")
+            self.noun_model = AttentionModel(
+                self.noun_embeddings, self.noun_map, device=device
+            ).to(device)
+            self.noun_model.train()
 
+        LOG.info("Loaded models to device")
 
     def early_stopping(self, loss, accuracy):
         if self.cfg.trainer.get("early_stopping", False):
@@ -429,7 +442,6 @@ class EpicActionRecognitionModule(object):
         return False
 
     # baseline paper used num_epochs = 3e6
-  
 
     def run_training_loop(self, datamodule, num_epochs: int = 50, model_save_path=None):
         """Run the main training loop for the model.
@@ -443,8 +455,8 @@ class EpicActionRecognitionModule(object):
         """
         if model_save_path is None:
             model_save_path = self.cfg.save_path  # ? configure a default save_path?
-        train_loader = datamodule.train_dataloader(rank)
-        val_loader = datamodule.val_dataloader(rank)
+        train_loader = datamodule.train_dataloader()
+        val_loader = datamodule.val_dataloader()
         self.load_models_to_device(verb=True)
         verb_save_path = model_save_path / "verbs"
         noun_save_path = model_save_path / "nouns"
@@ -452,7 +464,7 @@ class EpicActionRecognitionModule(object):
         noun_save_path.mkdir(parents=True, exist_ok=True)
         LOG.info("Created snapshot paths for verbs and nouns")
         log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
-        steps_per_run = len(self.train_loader)
+        steps_per_run = len(train_loader)
         LOG.info("---------------- ### PHASE 1: TRAINING VERBS ### ----------------")
         for epoch in tqdm(range(num_epochs), desc="training loop(verb)", position=0):
             train_loss_verb, train_acc_verb = self._train(train_loader, "verb_class")
@@ -471,14 +483,14 @@ class EpicActionRecognitionModule(object):
                     + f" Validation Accuracy: {val_acc_verb:.4f}"
                 )
                 writer.add_scalars(
-                    'loss', 
-                    {'train loss': train_loss_verb, 'val loss': val_loss_verb}, 
-                    steps_per_run*(epoch + 1),
+                    "loss",
+                    {"train loss": train_loss_verb, "val loss": val_loss_verb},
+                    steps_per_run * (epoch + 1),
                 )
                 writer.add_scalars(
-                    'accuracy', 
-                    {'train accuracy': train_acc_verb, 'val accuracy': val_acc_verb}, 
-                    steps_per_run*(epoch + 1),
+                    "accuracy",
+                    {"train accuracy": train_acc_verb, "val accuracy": val_acc_verb},
+                    steps_per_run * (epoch + 1),
                 )
                 self.save_model(self.verb_model, epoch + 1, verb_save_path)
                 LOG.info(
@@ -504,7 +516,7 @@ class EpicActionRecognitionModule(object):
         self.train_accuracy_history = []
         self.validation_loss_history = []
         self.validation_accuracy_history = []
-        self.freeze_feature_extractors() # We want noun model to use the same params for feature extraction as the verbs
+        self.freeze_feature_extractors()  # We want noun model to use the same params for feature extraction as the verbs
         self.load_models_to_device(verb=False)
         LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
         for epoch in tqdm(range(num_epochs)):
@@ -524,14 +536,14 @@ class EpicActionRecognitionModule(object):
                     + f" Validation Accuracy: {val_acc_noun:.4f}"
                 )
                 writer.add_scalars(
-                    'loss', 
-                    {'train loss': train_loss_noun, 'val loss': val_loss_noun}, 
-                    steps_per_run*(epoch + 1),
+                    "loss",
+                    {"train loss": train_loss_noun, "val loss": val_loss_noun},
+                    steps_per_run * (epoch + 1),
                 )
                 writer.add_scalars(
-                    'accuracy', 
-                    {'train accuracy': train_acc_noun, 'val accuracy': val_acc_noun}, 
-                    steps_per_run*(epoch + 1),
+                    "accuracy",
+                    {"train accuracy": train_acc_noun, "val accuracy": val_acc_noun},
+                    steps_per_run * (epoch + 1),
                 )
                 self.save_model(self.noun_model, epoch + 1, noun_save_path)
                 if self.early_stopping(val_loss_noun, val_acc_noun):
@@ -554,20 +566,27 @@ class EpicActionRecognitionModule(object):
                 params.requires_grad = False
         LOG.info("RGB, Flow and Narration model parameters frozen for training.")
 
+
 class DDPRecognitionModule(EpicActionRecognitionModule):
     def __init__(self, cfg: DictConfig):
         super().__init__(cfg)
 
     def ddp_setup(self, rank, world_size, master_port):
-        log_print(LOG, f'device = {rank}, backend = {self.cfg.learning.ddp.backend}, type = {type(self.cfg.learning.ddp.backend)}, port = {master_port}')
-        os.environ["MASTER_ADDR"] = 'localhost'
+        log_print(
+            LOG,
+            f"device = {rank}, backend = {self.cfg.learning.ddp.backend}, type = {type(self.cfg.learning.ddp.backend)}, port = {master_port}",
+        )
+        os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = str(master_port)
-        init_process_group(self.cfg.learning.ddp.backend, rank=rank, world_size=world_size)
+        init_process_group(
+            self.cfg.learning.ddp.backend, rank=rank, world_size=world_size
+        )
         # torch.cuda.set_device(rank)
         LOG.info("Created DDP process group")
 
-
     def save_model(self, ddp_model, epoch, path):
+        assert self.rgb_model is not None, "RGB model has not been initialized"
+        assert self.flow_model is not None, "FLow model has not been initialized"
         torch.save(
             {
                 "epoch": epoch,
@@ -579,43 +598,62 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
             os.path.join(path, f"checkpoint_{epoch}.pt"),
         )
 
-
-    def train(self, rank, world_size, free_port, datamodule, verb_save_path, noun_save_path, batch_size, num_epochs):
+    def train(
+        self,
+        rank,
+        world_size,
+        free_port,
+        datamodule,
+        verb_save_path,
+        noun_save_path,
+        batch_size,
+        num_epochs,
+    ):
         self.ddp_setup(rank, world_size, free_port)
-        
+
         train_loader = datamodule.train_dataloader(rank)
         val_loader = datamodule.val_dataloader(rank)
         log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
         steps_per_run = len(train_loader)
-        train_loss_history, validation_loss_history, train_accuracy_history, validation_accuracy_history = [], [], [], []
-        
+        (
+            train_loss_history,
+            validation_loss_history,
+            train_accuracy_history,
+            validation_accuracy_history,
+        ) = ([], [], [], [])
+
         def ddp_loop(ddp_model, snapshot_save_path, key, tqdm_desc="training loop"):
             for epoch in tqdm(range(num_epochs), desc=tqdm_desc, position=0):
                 train_loader.sampler.set_epoch(epoch)
                 train_loss_meter = ActionMeter("train loss")
                 train_acc_meter = ActionMeter("train accuracy")
                 for batch in tqdm(
-                    loader, desc="train_loader", total=len(loader), position=0,
+                    train_loader,
+                    desc="train_loader",
+                    total=len(train_loader),
+                    position=0,
                 ):
-                    batch_acc, batch_loss = self._step(batch, ddp_model)
+                    batch_acc, batch_loss = self._step(batch, ddp_model, key)
                     train_acc_meter.update(batch_acc, batch_size)
                     train_loss_meter.update(batch_loss.item(), batch_size)
                     self.backprop(ddp_model, batch_loss)
 
-                train_loss = train_loss_meter.get_average_values() 
+                train_loss = train_loss_meter.get_average_values()
                 train_acc = train_acc_meter.get_average_values()
                 train_loss_history.append(train_loss)
                 train_accuracy_history.append(train_acc)
 
-                # Validation 
+                # Validation
                 if (epoch + 1) % log_every_n_steps == 0:
                     val_loader.sampler.set_epoch(epoch)
                     ddp_model.eval()
+                    self.rgb_model.eval()
+                    self.flow_model.eval()
                     val_loss_meter = ActionMeter("val loss")
                     val_acc_meter = ActionMeter("val accuracy")
                     with torch.no_grad():
                         for batch in tqdm(loader, desc="val_loader", total=len(loader)):  # type: ignore
-                            batch_acc, batch_loss = self._step(batch, ddp_model)
+                            batch_acc, batch_loss = self._step(batch, ddp_model, key)
                             val_acc_meter.update(batch_acc, batch_size)
                             val_loss_meter.update(batch_loss.item(), batch_size)
 
@@ -634,14 +672,14 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
                             "info",
                         )
                         writer.add_scalars(
-                            tqdm_desc + ': loss', 
-                            {'train loss': train_loss, 'val loss': val_loss}, 
-                            steps_per_run*(epoch + 1),
+                            tqdm_desc + ": loss",
+                            {"train loss": train_loss, "val loss": val_loss},
+                            steps_per_run * (epoch + 1),
                         )
                         writer.add_scalars(
-                            tqdm_desc + ': accuracy', 
-                            {'train accuracy': train_acc, 'val accuracy': val_acc}, 
-                            steps_per_run*(epoch + 1),
+                            tqdm_desc + ": accuracy",
+                            {"train accuracy": train_acc, "val accuracy": val_acc},
+                            steps_per_run * (epoch + 1),
                         )
                         self.save_model(ddp_model, epoch + 1, snapshot_save_path)
                         LOG.info(
@@ -650,104 +688,126 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
                     if self.early_stopping(val_loss, val_acc):
                         break
                 ddp_model.train()
+                self.rgb_model.train()
+                self.flow_model.train()
 
         # VERB TRAINING
         self.load_models_to_device(device=rank, train=True, verb=True)
 
-        train_loss_history, validation_loss_history, train_accuracy_history, validation_accuracy_history = [], [], [], []
+        (
+            train_loss_history,
+            validation_loss_history,
+            train_accuracy_history,
+            validation_accuracy_history,
+        ) = ([], [], [], [])
         ddp_model = DDP(self.verb_model, device_ids=[rank])
         if rank == 0:
-            log_print(LOG, "---------------- ### PHASE 1: TRAINING VERBS ### ----------------", "info")
+            log_print(
+                LOG,
+                "---------------- ### PHASE 1: TRAINING VERBS ### ----------------",
+                "info",
+            )
         key = "verb_class"
         self.opt = self.get_optimizer(key)
         ddp_loop(ddp_model, verb_save_path, key, "training loop (verbs)")
         dist.barrier()
-        train_stats =  {
+        train_stats = {
             "train_accuracy": train_accuracy_history,
             "train_loss": train_loss_history,
             "val_accuracy": validation_accuracy_history,
             "val_loss": validation_loss_history,
         }
-        
+
         # Write training stats for analysis
-        fname = os.path.join(model_save_path, "train_stats_verbs.pkl")
+        fname = os.path.join(self.cfg.model.save_path, "train_stats_verbs.pkl")
         if rank == 0:
             write_pickle(train_stats, fname)
             LOG.info("Finished verb training")
 
         # NOUN TRAINING
-        self.load_models_to_device(rank, train=True, verb=True)
-        train_loss_history, validation_loss_history, train_accuracy_history, validation_accuracy_history = [], [], [], []
+        self.load_models_to_device(rank, verb=True)
+        (
+            train_loss_history,
+            validation_loss_history,
+            train_accuracy_history,
+            validation_accuracy_history,
+        ) = ([], [], [], [])
 
         self.freeze_feature_extractors()
         key = "noun_class"
-        torch.cuda.clear_cache()
-        self.load_models_to_device(rank, train=True, verb=False)
+        torch.cuda.empty_cache()
+        self.load_models_to_device(rank, verb=False)
         self.opt = self.get_optimizer(key)
         ddp_model = DDP(self.noun_model, device_ids=[rank])
         if rank == 0:
-            log_print(LOG, "---------------- ### PHASE 2: TRAINING NOUNS ### ----------------", "info")
+            log_print(
+                LOG,
+                "---------------- ### PHASE 2: TRAINING NOUNS ### ----------------",
+                "info",
+            )
         ddp_loop(ddp_model, noun_save_path, key, "training loop (nouns)")
         dist.barrier()
-        train_stats =  {
+        train_stats = {
             "train_accuracy": train_accuracy_history,
             "train_loss": train_loss_history,
             "val_accuracy": validation_accuracy_history,
             "val_loss": validation_loss_history,
         }
         # Write training stats for analysis
-        fname = os.path.join(model_save_path, "train_stats_nouns.pkl")
+        fname = os.path.join(self.cfg.model.save_path, "train_stats_nouns.pkl")
         if rank == 0:
             write_pickle(train_stats, fname)
             LOG.info("Finished noun training")
 
         self.ddp_shutdown()
 
-
     def ddp_shutdown(self):
         if dist.is_initialized():
             destroy_process_group()
 
-
-    def run_training_loop(self, datamodule, num_epochs:int = 50, model_save_path = None):
+    def run_training_loop(self, datamodule, num_epochs: int = 50, model_save_path=None):
+        if model_save_path is None:
+            model_save_path = Path(self.cfg.model.save_path)
         verb_save_path = model_save_path / "verbs"
         noun_save_path = model_save_path / "nouns"
         verb_save_path.mkdir(parents=True, exist_ok=True)
         noun_save_path.mkdir(parents=True, exist_ok=True)
         LOG.info("Created snapshot paths for verbs and nouns")
 
-        os.environ["NCCL_P2P_DISABLE"] = "1" # required unless ACS is disabled on host. Ref: https://github.com/NVIDIA/nccl/issues/199
+        # required unless ACS is disabled on host. Ref: https://github.com/NVIDIA/nccl/issues/199
+        os.environ["NCCL_P2P_DISABLE"] = "1"
         # debugging
         os.environ["NCCL_DEBUG"] = "INFO"
         os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
 
         port = self.cfg.learning.ddp.master_port
-        print(f"Creating DDP process group with {self.cfg.learning.ddp.backend.upper()} backend on port :{port}")
+        print(
+            f"Creating DDP process group with {self.cfg.learning.ddp.backend.upper()} backend on port :{port}"
+        )
         LOG.info("Initializing DDP training process")
-        
+
         world_size = self.cfg.trainer.gpus
         batch_size = self.cfg.learning.batch_size
         num_epochs = self.cfg.trainer.max_epochs
-        
+
         mp.spawn(
-                self.train, 
-                args=(
-                    world_size,
-                    port,
-                    datamodule,
-                    verb_save_path,
-                    noun_save_path,
-                    batch_size,
-                    num_epochs
-                ), 
-                nprocs=self.cfg.learning.ddp.nprocs,
-                join=True,
+            self.train,
+            args=(
+                world_size,
+                port,
+                datamodule,
+                verb_save_path,
+                noun_save_path,
+                batch_size,
+                num_epochs,
+            ),
+            nprocs=self.cfg.learning.ddp.nprocs,
+            join=True,
         )
 
         writer.close()
-    
-    
+
     # def ddp_loop(
     #     self,
     #     num_epochs: int,
@@ -777,13 +837,13 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
     #             )
     #             if rank == 0:
     #                 writer.add_scalars(
-    #                     'loss', 
-    #                     {'train loss': train_loss, 'val loss': val_loss}, 
+    #                     'loss',
+    #                     {'train loss': train_loss, 'val loss': val_loss},
     #                     steps_per_run*(epoch + 1),
     #                 )
     #                 writer.add_scalars(
-    #                     'accuracy', 
-    #                     {'train accuracy': train_acc, 'val accuracy': val_acc}, 
+    #                     'accuracy',
+    #                     {'train accuracy': train_acc, 'val accuracy': val_acc},
     #                     steps_per_run*(epoch + 1),
     #                 )
     #                 self.save_model(epoch + 1, snapshot_save_path, key)
@@ -793,8 +853,8 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
     #             if self.early_stopping(val_loss, val_acc):
     #                 break
 
-    # def _training_loop(self, rank, port, world_size, num_epochs:int = 50, model_save_path = None):     
-    #     self.ddp_setup(rank, world_size)   
+    # def _training_loop(self, rank, port, world_size, num_epochs:int = 50, model_save_path = None):
+    #     self.ddp_setup(rank, world_size)
     #     super().__init__(self.cfg, self.datamodule, device=rank, rank=rank)
     #     if model_save_path is None:
     #         model_save_path = self.cfg.save_path  # ? configure a default save_path?
@@ -850,6 +910,8 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
     #     if rank == 0:
     #         LOG.info("Training completed!")
     #     self.ddp_shutdown()
+
+
 # @hydra.main(config_path="../../configs", config_name="pilot_config", version_base=None)
 # def main(cfg: DictConfig):
 #     LOG.info('Config:\n' + OmegaConf.to_yaml(cfg))
@@ -863,6 +925,6 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
 #     # if ddp:
 #     #     destroy_process_group()
 #     LOG.info("Training completed")
-    
+
 # if __name__ == "__main__":
 #     main()

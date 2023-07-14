@@ -46,7 +46,7 @@ model:
   weights: 
     rgb: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_rgb.ckpt
     flow: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_flow.ckpt
-  save_path: data/train_run
+  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/train_run
   dropout: 0.7
   partial_bn: yes
   shift_div: 8
