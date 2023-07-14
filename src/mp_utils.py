@@ -2,8 +2,12 @@ import os
 import torch
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Dataset
+import torch.distributed as dist
 from torch.distributed import init_process_group
 
+from datetime import timedelta
+import socket
+from contextlib import closing
 
 def prepare_distributed_sampler(
     dataset: Dataset,
@@ -41,13 +45,30 @@ def prepare_distributed_sampler(
     )
     return dataloader
 
+def get_open_port():
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(('', 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
 
-def ddp_setup(backend="nccl"):
-    init_process_group(backend=backend)
+def ddp_setup(backend, port):
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = str(port)
+    print(f"Creating DDP process group with {backend.upper()} backend on port :{port}")
+    dist.init_process_group(backend=backend)
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-    # os.environ["NCCL_SOCKET_IFNAME"] = "eno1"
+    os.environ["NCCL_P2P_DISABLE"] = "1" # required unless ACS is disabled on host. Ref: https://github.com/NVIDIA/nccl/issues/199
+    
+    # group_gloo = dist.new_group(backend="gloo")
+    # if int(os.environ["LOCAL_RANK"]) not in [1]:
+    #     dist.monitored_barrier(group=group_gloo, timeout=timedelta(seconds=2))
+    
     # debugging
     os.environ["NCCL_DEBUG"] = "INFO"
     os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
-    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
+    print("Created DDP process group")
+    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     # os.environ["HYDRA_FULL_ERROR"] = "1"
+
+

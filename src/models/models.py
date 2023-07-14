@@ -8,16 +8,12 @@ from constants import (
 from sentence_transformers import SentenceTransformer
 from utils import get_device, vector_gather
 
-# Neural Network configs
-embedding_model = SentenceTransformer(SENTENCE_TRANSFORMER_MODEL, device=get_device())
-
-
 # WORD EMBEDDINGS
 class WordEmbeddings(nn.Module):
-    def __init__(self, model=embedding_model) -> None:
+    def __init__(self, device='cpu') -> None:
         super().__init__()
-        self.model = model
-        self.device = get_device()
+        self.device = device
+        self.model = SentenceTransformer(SENTENCE_TRANSFORMER_MODEL, device=self.device)
 
     def forward(self, text):
         embeddings = self.model.encode(text)

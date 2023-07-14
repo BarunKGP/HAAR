@@ -184,7 +184,7 @@ class EpicActionRecognitionDataModule(object):
         if self.ddp:
             return DataLoader(
                 dataset=dataset,
-                batch_size=self.cfg.learning.batch_size,
+                batch_size=self.cfg.learning.val_batch_size,
                 shuffle=False,
                 num_workers=self.cfg.data.worker_count,
                 pin_memory=self.cfg.data.pin_memory,
@@ -201,7 +201,7 @@ class EpicActionRecognitionDataModule(object):
             # )
         return DataLoader(
             dataset=dataset,
-            batch_size=self.cfg.learning.batch_size,
+            batch_size=self.cfg.learning.val_batch_size,
             shuffle=False,
             num_workers=self.cfg.data.worker_count,
             pin_memory=self.cfg.data.pin_memory,

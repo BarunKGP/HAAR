@@ -16,6 +16,7 @@ def setup(rank, world_size):
 
     # initialize the process group
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    # dist.init_process_group("nccl")
 
 
 def cleanup():
@@ -101,13 +102,16 @@ def run_demo(demo_fn, world_size):
 
 if __name__ == "__main__":
     os.environ["NCCL_DEBUG"] = "INFO"
+    os.environ["NCCL_P2P_DISABLE"] = "1"
     os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
     n_gpus = torch.cuda.device_count()
-    assert n_gpus >= 2, f"Requires at least 2 GPUs to run, but got {n_gpus}"
+    # assert n_gpus >= 2, f"Requires at least 2 GPUs to run, but got {n_gpus}"
     world_size = n_gpus
+    # demo_basic(int(os.environ["LOCAL_RANK"]), world_size)
+
     run_demo(demo_basic, world_size)
-    run_demo(demo_checkpoint, world_size)
+    # run_demo(demo_checkpoint, world_size)
     print(f"Finished running DDP")
     # world_size = n_gpus//2
     # run_demo(demo_model_parallel, world_size)
