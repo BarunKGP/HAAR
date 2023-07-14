@@ -3,27 +3,23 @@ import sys
 import os
 from omegaconf import DictConfig
 import hydra
-# import torch
-# import torch.distributed as dist
-
-# from torch.distributed import destroy_process_group, init_process_group
+import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.distributed import destroy_process_group, init_process_group
+from torch.utils.tensorboard.writer import SummaryWriter
+from torch.nn.parallel import DistributedDataParallel as DDP
+from models.models import AttentionModel
 
 from systems.recognition_module import EpicActionRecognitionModule, DDPRecognitionModule
 from systems.data_module import EpicActionRecognitionDataModule
-from utils import get_device, get_loggers
+from utils import ActionMeter, get_device, get_loggers, log_print, write_pickle
 
+from tqdm import tqdm
 
-@hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
-def main(cfg: DictConfig):
-    data_module = EpicActionRecognitionDataModule(cfg)
-    # debug(data_module.val_loader)
-    if cfg.learning.get("ddp", False):
-        system = DDPRecognitionModule(cfg)
-    else:
-        system = EpicActionRecognitionModule(cfg)
-   
-    system.run_training_loop(data_module, cfg.trainer.max_epochs, Path(cfg.model.save_path))
-    sys.exit()  # required to prevent CPU lock (soft bug)
+LOG = get_loggers(__name__, filename="data/pilot=01/logs/train.log")
+writer = SummaryWriter("data/pilot-01/runs")
+
 
 def debug(loader):
     for item in loader:
@@ -34,13 +30,32 @@ def debug(loader):
         print(rgb_metadata.keys())
         break
 
-def run_ddp(system):
+
+def set_env_ddp():
+    # required unless ACS is disabled on host. Ref: https://github.com/NVIDIA/nccl/issues/199
+    os.environ["NCCL_P2P_DISABLE"] = "1"
+    # debugging
+    os.environ["NCCL_DEBUG"] = "INFO"
+    os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
+    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
+
+
+def create_snapshot_paths(model_save_path):
+    verb_save_path = model_save_path / "verbs"
+    noun_save_path = model_save_path / "nouns"
+    verb_save_path.mkdir(parents=True, exist_ok=True)
+    noun_save_path.mkdir(parents=True, exist_ok=True)
+    LOG.info("Created snapshot paths for verbs and nouns")
+    return verb_save_path, noun_save_path
+
+
+def run_ddp(system, datamodule, port, verb_save_path, noun_save_path, ddp_fn):
     world_size = system.cfg.trainer.gpus
     batch_size = system.cfg.learning.batch_size
     num_epochs = system.cfg.trainer.max_epochs
-
+    nprocs = system.cfg.learning.ddp.nprocs
     mp.spawn(
-        ddp_train,
+        ddp_fn,
         args=(
             world_size,
             port,
@@ -51,42 +66,39 @@ def run_ddp(system):
             batch_size,
             num_epochs,
         ),
-        nprocs=system.cfg.learning.ddp.nprocs,
+        nprocs=nprocs,
         join=True,
     )
 
-    writer.close()
 
+def ddp_setup(rank, world_size, master_port, backend):
+    # log_print(
+    #     LOG,
+    #     f"device = {rank}, backend = {self.cfg.learning.ddp.backend}, type = {type(self.cfg.learning.ddp.backend)}, port = {master_port}",
+    # )
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = str(master_port)
+    init_process_group(backend, rank=rank, world_size=world_size)
+    # torch.cuda.set_device(rank)
+    LOG.info("Created DDP process group")
 
- def ddp_setup(self, rank, world_size, master_port):
-        # log_print(
-        #     LOG,
-        #     f"device = {rank}, backend = {self.cfg.learning.ddp.backend}, type = {type(self.cfg.learning.ddp.backend)}, port = {master_port}",
-        # )
-        os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = str(master_port)
-        init_process_group(
-            self.cfg.learning.ddp.backend, rank=rank, world_size=world_size
-        )
-        # torch.cuda.set_device(rank)
-        LOG.info("Created DDP process group")
 
 def ddp_train(
-        rank,
-        world_size,
-        free_port,
-        datamodule,
-        system
-        verb_save_path,
-        noun_save_path,
-        batch_size,
-        num_epochs,
-    ):
-    ddp_setup(rank, world_size, free_port)
+    rank,
+    world_size,
+    free_port,
+    datamodule,
+    system,
+    verb_save_path,
+    noun_save_path,
+    batch_size,
+    num_epochs,
+):
+    ddp_setup(rank, world_size, free_port, "nccl")  # should be taken from cfg
 
     train_loader = datamodule.train_dataloader(rank)
     val_loader = datamodule.val_dataloader(rank)
-    log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
+    log_every_n_steps = system.cfg.trainer.get("log_every_n_steps", 1)
     steps_per_run = len(train_loader)
     (
         train_loss_history,
@@ -106,10 +118,10 @@ def ddp_train(
                 total=len(train_loader),
                 position=0,
             ):
-                batch_acc, batch_loss = self._step(batch, ddp_model, key)
+                batch_acc, batch_loss = system._step(batch, ddp_model, key)
                 train_acc_meter.update(batch_acc, batch_size)
                 train_loss_meter.update(batch_loss.item(), batch_size)
-                self.backprop(ddp_model, batch_loss)
+                system.backprop(ddp_model, batch_loss)
 
             train_loss = train_loss_meter.get_average_values()
             train_acc = train_acc_meter.get_average_values()
@@ -120,13 +132,13 @@ def ddp_train(
             if (epoch + 1) % log_every_n_steps == 0:
                 val_loader.sampler.set_epoch(epoch)
                 ddp_model.eval()
-                self.rgb_model.eval()
-                self.flow_model.eval()
+                system.rgb_model.eval()
+                system.flow_model.eval()
                 val_loss_meter = ActionMeter("val loss")
                 val_acc_meter = ActionMeter("val accuracy")
                 with torch.no_grad():
                     for batch in tqdm(loader, desc="val_loader", total=len(loader)):  # type: ignore
-                        batch_acc, batch_loss = self._step(batch, ddp_model, key)
+                        batch_acc, batch_loss = system._step(batch, ddp_model, key)
                         val_acc_meter.update(batch_acc, batch_size)
                         val_loss_meter.update(batch_loss.item(), batch_size)
 
@@ -154,18 +166,18 @@ def ddp_train(
                         {"train accuracy": train_acc, "val accuracy": val_acc},
                         steps_per_run * (epoch + 1),
                     )
-                    self.save_model(ddp_model, epoch + 1, snapshot_save_path)
+                    system.save_model(ddp_model, epoch + 1, snapshot_save_path)
                     LOG.info(
                         f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
                     )
-                if self.early_stopping(val_loss, val_acc):
+                if system.early_stopping(val_loss, val_acc):
                     break
             ddp_model.train()
-            self.rgb_model.train()
-            self.flow_model.train()
+            system.rgb_model.train()
+            system.flow_model.train()
 
     # VERB TRAINING
-    self.load_models_to_device(device=rank, verb=True)
+    system.load_models_to_device(device=rank, verb=True)
 
     (
         train_loss_history,
@@ -173,7 +185,11 @@ def ddp_train(
         train_accuracy_history,
         validation_accuracy_history,
     ) = ([], [], [], [])
-    ddp_model = DDP(self.verb_model, device_ids=[rank])
+
+    verb_model = AttentionModel(
+        system.verb_embeddings, system.verb_map, device=rank
+    ).to(rank)
+    ddp_model = DDP(verb_model, device_ids=[rank])
     if rank == 0:
         log_print(
             LOG,
@@ -181,7 +197,7 @@ def ddp_train(
             "info",
         )
     key = "verb_class"
-    self.opt = self.get_optimizer(key)
+    system.opt = system.get_optimizer(key)
     ddp_loop(ddp_model, verb_save_path, key, "training loop (verbs)")
     dist.barrier()
     train_stats = {
@@ -192,13 +208,13 @@ def ddp_train(
     }
 
     # Write training stats for analysis
-    fname = os.path.join(self.cfg.model.save_path, "train_stats_verbs.pkl")
+    fname = os.path.join(system.cfg.model.save_path, "train_stats_verbs.pkl")
     if rank == 0:
         write_pickle(train_stats, fname)
         LOG.info("Finished verb training")
 
     # NOUN TRAINING
-    self.load_models_to_device(rank, verb=True)
+    system.load_models_to_device(rank, verb=True)
     (
         train_loss_history,
         validation_loss_history,
@@ -206,12 +222,12 @@ def ddp_train(
         validation_accuracy_history,
     ) = ([], [], [], [])
 
-    self.freeze_feature_extractors()
+    system.freeze_feature_extractors()
     key = "noun_class"
     torch.cuda.empty_cache()
-    self.load_models_to_device(rank, verb=False)
-    self.opt = self.get_optimizer(key)
-    ddp_model = DDP(self.noun_model, device_ids=[rank])
+    system.load_models_to_device(rank, verb=False)
+    system.opt = system.get_optimizer(key)
+    ddp_model = DDP(system.noun_model, device_ids=[rank])
     if rank == 0:
         log_print(
             LOG,
@@ -227,15 +243,41 @@ def ddp_train(
         "val_loss": validation_loss_history,
     }
     # Write training stats for analysis
-    fname = os.path.join(self.cfg.model.save_path, "train_stats_nouns.pkl")
+    fname = os.path.join(system.cfg.model.save_path, "train_stats_nouns.pkl")
     if rank == 0:
         write_pickle(train_stats, fname)
         LOG.info("Finished noun training")
 
     ddp_shutdown()
 
+
 def ddp_shutdown():
     destroy_process_group()
+    writer.close()
+
+
+@hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
+def main(cfg: DictConfig):
+    data_module = EpicActionRecognitionDataModule(cfg)
+    if cfg.learning.get("ddp", False):
+        system = DDPRecognitionModule(cfg)
+        verb_path, noun_path = create_snapshot_paths(Path(cfg.model.save_path))
+        set_env_ddp()
+        run_ddp(
+            system,
+            data_module,
+            cfg.learning.ddp.master_port,
+            verb_path,
+            noun_path,
+            ddp_train,
+        )
+    else:
+        system = EpicActionRecognitionModule(cfg)
+        system.run_training_loop(
+            data_module, cfg.trainer.max_epochs, Path(cfg.model.save_path)
+        )
+    LOG.info("Training completed!")
+    sys.exit()  # required to prevent CPU lock (soft bug)
 
 
 if __name__ == "__main__":
