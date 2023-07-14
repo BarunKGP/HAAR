@@ -692,7 +692,7 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
                 self.flow_model.train()
 
         # VERB TRAINING
-        self.load_models_to_device(device=rank, train=True, verb=True)
+        self.load_models_to_device(device=rank, verb=True)
 
         (
             train_loss_history,
