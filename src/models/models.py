@@ -22,13 +22,13 @@ class WordEmbeddings(nn.Module):
 
 # ATTENTION MODEL
 class AttentionModel(nn.Module):
-    def __init__(self, embeddings, word_map, device=get_device()):
+    def __init__(self, word_map):
         super().__init__()
 
-        self.embeddings = embeddings
-        self.word_map = word_map
-        self.cardinality = len(self.word_map)
-        self.device = device
+        # self.embeddings = embeddings
+        # self.word_map = word_map
+        # self.device = device
+        self.cardinality = len(word_map)
         self.layer1 = nn.Sequential(
             nn.Conv1d(in_channels=1, out_channels=100, kernel_size=3),
             nn.ReLU(),
@@ -38,7 +38,7 @@ class AttentionModel(nn.Module):
         self.linear_layer = nn.Linear(WORD_EMBEDDING_SIZE, self.cardinality, bias=True)
         self.softmax = nn.Softmax(dim=-1)
 
-    def _predictions(self, frame_features, key):
+    def _predictions(self, frame_features, key, embeddings):
         """Takes the frame_features and returns the predictions
         for action (verb/noun)
 
@@ -64,10 +64,10 @@ class AttentionModel(nn.Module):
             torch.Tensor: prediction probabilities for each verb/noun
                 class
         """
-        if self.embeddings.ndim == 1:
-            self.embeddings = self.embeddings[:, None]  # Convert to shape [b, K]
+        if embeddings.ndim == 1:
+            embeddings = embeddings[:, None]  # Convert to shape [b, K]
         A = torch.sigmoid(
-            torch.matmul(self.embeddings.to(self.device), frame_features)
+            torch.matmul(embeddings, frame_features)
         )  # shape: [b, C, 100]
 
         #! class-aware attention should only be done in training, figure out different flow for testing
@@ -85,7 +85,7 @@ class AttentionModel(nn.Module):
     def _evaluate(self):
         pass
 
-    def forward(self, x: torch.Tensor, label: int):
+    def forward(self, x: torch.Tensor, label: int, embeddings):
         x = x[:, None, :].to(torch.float32)
         x = self.layer1(x).permute((0, 2, 1))
-        return self._predictions(x, label)
+        return self._predictions(x, label, embeddings)

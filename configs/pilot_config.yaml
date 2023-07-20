@@ -66,7 +66,7 @@ learning:
   ddp: 
     nprocs: 3
     backend: nccl
-    master_port: 4440
+    master_port: 12634
   lr: 0.01
   lr_scheduler:
     type: StepLR

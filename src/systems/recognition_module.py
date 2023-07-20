@@ -180,11 +180,7 @@ class EpicActionRecognitionModule(object):
         else:
             raise Exception('Invalid key: choose either "noun" or "verb"')
 
-    def get_optimizer(self, key: str = "verb_class"):
-        model_ref = {"verb_class": self.verb_model, "noun_class": self.noun_model}
-        assert (
-            model_ref[key] is not None
-        ), "AttentionModel has not been initialized for this key"
+    def get_optimizer(self, model):
         assert self.rgb_model is not None, "RGB model has not been initialized"
         assert self.flow_model is not None, "FLow model has not been initialized"
 
@@ -203,7 +199,7 @@ class EpicActionRecognitionModule(object):
                                 lambda p: p.requires_grad, self.flow_model.parameters()
                             ),
                         },
-                        {"params": model_ref[key].parameters()},
+                        {"params": model.parameters()},
                         # {"params": self.noun_model.parameters()},
                     ],
                     lr=cfg.lr,
@@ -221,7 +217,7 @@ class EpicActionRecognitionModule(object):
                                 lambda p: p.requires_grad, self.flow_model.parameters()
                             ),
                         },
-                        {"params": model_ref[key].parameters()},
+                        {"params": model.parameters()},
                         # {"params": self.noun_model.parameters()},
                     ],
                     lr=self.cfg.learning.lr,
@@ -247,7 +243,7 @@ class EpicActionRecognitionModule(object):
                         lambda p: p.requires_grad, self.flow_model.parameters()
                     ),
                 },
-                {"params": model_ref[key].parameters()},
+                {"params": model.parameters()},
                 # {"params": self.noun_model.parameters()},
             ],
             lr=lr,
@@ -365,11 +361,11 @@ class EpicActionRecognitionModule(object):
         feats = torch.hstack((rgb_feats, flow_feats, narration_feats.to(self.device)))
 
         # Predictions
-        predictions = model(feats, labels)
-        # if key == "verb_class":
-        #     predictions = self.verb_model(feats, labels)
-        # else:
-        #     predictions = self.noun_model(feats, labels)
+        # predictions = model(feats, labels, )
+        if key == "verb_class":
+            predictions = model(feats, labels, self.verb_embeddings)
+        else:
+            predictions = model(feats, labels, self.noun_embeddings)
         predictions = predictions.cpu()
 
         # Compute loss and accuracy
@@ -413,17 +409,17 @@ class EpicActionRecognitionModule(object):
         self.flow_model.train()
 
         if verb:
-            self.verb_embeddings = self.get_embeddings("verb")
-            self.verb_model = AttentionModel(
-                self.verb_embeddings, self.verb_map, device=device
-            ).to(device)
-            self.verb_model.train()
+            self.verb_embeddings = self.get_embeddings("verb").to(device)
+            # self.verb_model = AttentionModel(
+            #     self.verb_embeddings, self.verb_map, device=device
+            # ).to(device)
+            # self.verb_model.train()
         else:
-            self.noun_embeddings = self.get_embeddings("noun")
-            self.noun_model = AttentionModel(
-                self.noun_embeddings, self.noun_map, device=device
-            ).to(device)
-            self.noun_model.train()
+            self.noun_embeddings = self.get_embeddings("noun").to(device)
+            # self.noun_model = AttentionModel(
+            #     self.noun_embeddings, self.noun_map, device=device
+            # ).to(device)
+            # self.noun_model.train()
 
         LOG.info("Loaded models to device")
 
@@ -459,6 +455,7 @@ class EpicActionRecognitionModule(object):
         train_loader = datamodule.train_dataloader()
         val_loader = datamodule.val_dataloader()
         self.load_models_to_device(verb=True)
+        verb_model = AttentionModel(self.verb_map).to(self.device)
         verb_save_path = model_save_path / "verbs"
         noun_save_path = model_save_path / "nouns"
         verb_save_path.mkdir(parents=True, exist_ok=True)
@@ -466,6 +463,7 @@ class EpicActionRecognitionModule(object):
         LOG.info("Created snapshot paths for verbs and nouns")
         log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
         steps_per_run = len(train_loader)
+        self.opt = self.get_optimizer(verb_model)
         LOG.info("---------------- ### PHASE 1: TRAINING VERBS ### ----------------")
         for epoch in tqdm(range(num_epochs), desc="training loop(verb)", position=0):
             train_loss_verb, train_acc_verb = self._train(train_loader, "verb_class")
@@ -493,7 +491,7 @@ class EpicActionRecognitionModule(object):
                     {"train accuracy": train_acc_verb, "val accuracy": val_acc_verb},
                     steps_per_run * (epoch + 1),
                 )
-                self.save_model(self.verb_model, epoch + 1, verb_save_path)
+                self.save_model(verb_model, epoch + 1, verb_save_path)
                 LOG.info(
                     f"Saved model state for epoch {epoch + 1} at {verb_save_path}/checkpoint_{epoch + 1}.pt"
                 )
@@ -519,6 +517,8 @@ class EpicActionRecognitionModule(object):
         self.validation_accuracy_history = []
         self.freeze_feature_extractors()  # We want noun model to use the same params for feature extraction as the verbs
         self.load_models_to_device(verb=False)
+        noun_model = AttentionModel(self.noun_map).to(self.device)
+        self.opt = self.get_optimizer(noun_model)
         LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
         for epoch in tqdm(range(num_epochs)):
             train_loss_noun, train_acc_noun = self._train(train_loader, "noun_class")
@@ -546,7 +546,7 @@ class EpicActionRecognitionModule(object):
                     {"train accuracy": train_acc_noun, "val accuracy": val_acc_noun},
                     steps_per_run * (epoch + 1),
                 )
-                self.save_model(self.noun_model, epoch + 1, noun_save_path)
+                self.save_model(noun_model, epoch + 1, noun_save_path)
                 if self.early_stopping(val_loss_noun, val_acc_noun):
                     break
 

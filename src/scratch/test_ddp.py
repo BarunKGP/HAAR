@@ -12,7 +12,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 def setup(rank, world_size):
     os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "12356"
+    os.environ["MASTER_PORT"] = "12364"
 
     # initialize the process group
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
@@ -102,7 +102,7 @@ def run_demo(demo_fn, world_size):
 
 if __name__ == "__main__":
     os.environ["NCCL_DEBUG"] = "INFO"
-    os.environ["NCCL_P2P_DISABLE"] = "1"
+    # os.environ["NCCL_P2P_DISABLE"] = "1"
     os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
     n_gpus = torch.cuda.device_count()
