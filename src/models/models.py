@@ -24,10 +24,6 @@ class WordEmbeddings(nn.Module):
 class AttentionModel(nn.Module):
     def __init__(self, word_map):
         super().__init__()
-
-        # self.embeddings = embeddings
-        # self.word_map = word_map
-        # self.device = device
         self.cardinality = len(word_map)
         self.layer1 = nn.Sequential(
             nn.Conv1d(in_channels=1, out_channels=100, kernel_size=3),

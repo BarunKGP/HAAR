@@ -66,8 +66,8 @@ learning:
   ddp: 
     nprocs: 3
     backend: nccl
-    master_port: 12634
-  lr: 0.01
+    master_port: 12787
+  lr: 0.05
   lr_scheduler:
     type: StepLR
     gamma: 0.1
@@ -81,7 +81,8 @@ trainer:
     criterion: accuracy
     threshold: 0.8
   gpus: 3
-
+  load_snapshot:
+    verb_snapshot_path: data/train_run/verbs/checkpoint_5.pt
   # Write metrics to tensorboard logs every X iterations
   log_every_n_steps: 5
   weights_summary: full

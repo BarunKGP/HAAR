@@ -276,6 +276,17 @@ class EpicActionRecognitionModule(object):
             os.path.join(path, f"checkpoint_{epoch}.pt"),
         )
 
+    def load_snapshot(self, snapshot_path, device, attention_model, model_key="attention_model"):
+        checkpoint = torch.load(snapshot_path, map_location=device)
+        epoch = checkpoint['epoch']
+        self.rgb_model.load_state_dict(checkpoint['rgb_model'])
+        self.flow_model.load_state_dict(checkpoint['flow_model'])
+        attention_model.load_state_dict(checkpoint[model_key])
+        opt_sd = checkpoint['optimizer']
+
+        return epoch, opt_sd
+
+
     def _train(self, loader, key):
         """Run the training loop for one epoch.
         Calculate and return the loss and accuracy.
@@ -574,18 +585,6 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
     def __init__(self, cfg: DictConfig):
         super().__init__(cfg)
 
-    # def ddp_setup(self, rank, world_size, master_port):
-    #     log_print(
-    #         LOG,
-    #         f"device = {rank}, backend = {self.cfg.learning.ddp.backend}, type = {type(self.cfg.learning.ddp.backend)}, port = {master_port}",
-    #     )
-    #     os.environ["MASTER_ADDR"] = "localhost"
-    #     os.environ["MASTER_PORT"] = str(master_port)
-    #     init_process_group(
-    #         self.cfg.learning.ddp.backend, rank=rank, world_size=world_size
-    #     )
-    #     # torch.cuda.set_device(rank)
-    #     LOG.info("Created DDP process group")
 
     def save_model(self, ddp_model, epoch, path):
         assert self.rgb_model is not None, "RGB model has not been initialized"
@@ -601,334 +600,13 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
             os.path.join(path, f"checkpoint_{epoch}.pt"),
         )
 
-    # def train(
-    #     self,
-    #     rank,
-    #     world_size,
-    #     free_port,
-    #     datamodule,
-    #     verb_save_path,
-    #     noun_save_path,
-    #     batch_size,
-    #     num_epochs,
-    # ):
-    #     self.ddp_setup(rank, world_size, free_port)
+    # def load_snapshot(self, snapshot_path, model, device):
+    #     epoch, new_model = super().load_snapshot(snapshot_path, model, device)
+    #     checkpoint = torch.load(snapshot_path, map_location=device)
+    #     epoch = checkpoint['epoch']
+    #     self.rgb_model.load_state_dict(checkpoint['rgb_model'])
+    #     self.flow_model.load_state_dict(checkpoint['flow_model'])
+    #     ddp_model.load_state_dict(checkpoint['ddp_model'])
+    #     self.opt.load_state_dict(checkpoint['optimizer'])
 
-    #     train_loader = datamodule.train_dataloader(rank)
-    #     val_loader = datamodule.val_dataloader(rank)
-    #     log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
-    #     steps_per_run = len(train_loader)
-    #     (
-    #         train_loss_history,
-    #         validation_loss_history,
-    #         train_accuracy_history,
-    #         validation_accuracy_history,
-    #     ) = ([], [], [], [])
-
-    #     def ddp_loop(ddp_model, snapshot_save_path, key, tqdm_desc="training loop"):
-    #         for epoch in tqdm(range(num_epochs), desc=tqdm_desc, position=0):
-    #             train_loader.sampler.set_epoch(epoch)
-    #             train_loss_meter = ActionMeter("train loss")
-    #             train_acc_meter = ActionMeter("train accuracy")
-    #             for batch in tqdm(
-    #                 train_loader,
-    #                 desc="train_loader",
-    #                 total=len(train_loader),
-    #                 position=0,
-    #             ):
-    #                 batch_acc, batch_loss = self._step(batch, ddp_model, key)
-    #                 train_acc_meter.update(batch_acc, batch_size)
-    #                 train_loss_meter.update(batch_loss.item(), batch_size)
-    #                 self.backprop(ddp_model, batch_loss)
-
-    #             train_loss = train_loss_meter.get_average_values()
-    #             train_acc = train_acc_meter.get_average_values()
-    #             train_loss_history.append(train_loss)
-    #             train_accuracy_history.append(train_acc)
-
-    #             # Validation
-    #             if (epoch + 1) % log_every_n_steps == 0:
-    #                 val_loader.sampler.set_epoch(epoch)
-    #                 ddp_model.eval()
-    #                 self.rgb_model.eval()
-    #                 self.flow_model.eval()
-    #                 val_loss_meter = ActionMeter("val loss")
-    #                 val_acc_meter = ActionMeter("val accuracy")
-    #                 with torch.no_grad():
-    #                     for batch in tqdm(loader, desc="val_loader", total=len(loader)):  # type: ignore
-    #                         batch_acc, batch_loss = self._step(batch, ddp_model, key)
-    #                         val_acc_meter.update(batch_acc, batch_size)
-    #                         val_loss_meter.update(batch_loss.item(), batch_size)
-
-    #                 val_loss = val_loss_meter.get_average_values()
-    #                 val_acc = val_acc_meter.get_average_values()
-    #                 validation_loss_history.append(val_loss)
-    #                 validation_accuracy_history.append(val_acc)
-    #                 if rank == 0:
-    #                     log_print(
-    #                         LOG,
-    #                         f"Epoch:{epoch + 1}"
-    #                         + f" Train Loss: {train_loss}"
-    #                         + f" Val Loss: {val_loss}"
-    #                         + f" Train Accuracy: {train_acc:4f}"
-    #                         + f" Validation Accuracy: {val_acc:.4f}",
-    #                         "info",
-    #                     )
-    #                     writer.add_scalars(
-    #                         tqdm_desc + ": loss",
-    #                         {"train loss": train_loss, "val loss": val_loss},
-    #                         steps_per_run * (epoch + 1),
-    #                     )
-    #                     writer.add_scalars(
-    #                         tqdm_desc + ": accuracy",
-    #                         {"train accuracy": train_acc, "val accuracy": val_acc},
-    #                         steps_per_run * (epoch + 1),
-    #                     )
-    #                     self.save_model(ddp_model, epoch + 1, snapshot_save_path)
-    #                     LOG.info(
-    #                         f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
-    #                     )
-    #                 if self.early_stopping(val_loss, val_acc):
-    #                     break
-    #             ddp_model.train()
-    #             self.rgb_model.train()
-    #             self.flow_model.train()
-
-    #     # VERB TRAINING
-    #     self.load_models_to_device(device=rank, verb=True)
-
-    #     (
-    #         train_loss_history,
-    #         validation_loss_history,
-    #         train_accuracy_history,
-    #         validation_accuracy_history,
-    #     ) = ([], [], [], [])
-    #     ddp_model = DDP(self.verb_model, device_ids=[rank])
-    #     if rank == 0:
-    #         log_print(
-    #             LOG,
-    #             "---------------- ### PHASE 1: TRAINING VERBS ### ----------------",
-    #             "info",
-    #         )
-    #     key = "verb_class"
-    #     self.opt = self.get_optimizer(key)
-    #     ddp_loop(ddp_model, verb_save_path, key, "training loop (verbs)")
-    #     dist.barrier()
-    #     train_stats = {
-    #         "train_accuracy": train_accuracy_history,
-    #         "train_loss": train_loss_history,
-    #         "val_accuracy": validation_accuracy_history,
-    #         "val_loss": validation_loss_history,
-    #     }
-
-    #     # Write training stats for analysis
-    #     fname = os.path.join(self.cfg.model.save_path, "train_stats_verbs.pkl")
-    #     if rank == 0:
-    #         write_pickle(train_stats, fname)
-    #         LOG.info("Finished verb training")
-
-    #     # NOUN TRAINING
-    #     self.load_models_to_device(rank, verb=True)
-    #     (
-    #         train_loss_history,
-    #         validation_loss_history,
-    #         train_accuracy_history,
-    #         validation_accuracy_history,
-    #     ) = ([], [], [], [])
-
-    #     self.freeze_feature_extractors()
-    #     key = "noun_class"
-    #     torch.cuda.empty_cache()
-    #     self.load_models_to_device(rank, verb=False)
-    #     self.opt = self.get_optimizer(key)
-    #     ddp_model = DDP(self.noun_model, device_ids=[rank])
-    #     if rank == 0:
-    #         log_print(
-    #             LOG,
-    #             "---------------- ### PHASE 2: TRAINING NOUNS ### ----------------",
-    #             "info",
-    #         )
-    #     ddp_loop(ddp_model, noun_save_path, key, "training loop (nouns)")
-    #     dist.barrier()
-    #     train_stats = {
-    #         "train_accuracy": train_accuracy_history,
-    #         "train_loss": train_loss_history,
-    #         "val_accuracy": validation_accuracy_history,
-    #         "val_loss": validation_loss_history,
-    #     }
-    #     # Write training stats for analysis
-    #     fname = os.path.join(self.cfg.model.save_path, "train_stats_nouns.pkl")
-    #     if rank == 0:
-    #         write_pickle(train_stats, fname)
-    #         LOG.info("Finished noun training")
-
-    #     self.ddp_shutdown()
-
-    def run_training_loop(self, datamodule, num_epochs: int = 50, model_save_path=None):
-        pass
-        # if model_save_path is None:
-        #     model_save_path = Path(self.cfg.model.save_path)
-        # verb_save_path = model_save_path / "verbs"
-        # noun_save_path = model_save_path / "nouns"
-        # verb_save_path.mkdir(parents=True, exist_ok=True)
-        # noun_save_path.mkdir(parents=True, exist_ok=True)
-        # LOG.info("Created snapshot paths for verbs and nouns")
-
-        # # required unless ACS is disabled on host. Ref: https://github.com/NVIDIA/nccl/issues/199
-        # os.environ["NCCL_P2P_DISABLE"] = "1"
-        # # debugging
-        # os.environ["NCCL_DEBUG"] = "INFO"
-        # os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
-        # os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
-
-        # port = self.cfg.learning.ddp.master_port
-        # print(
-        #     f"Creating DDP process group with {self.cfg.learning.ddp.backend.upper()} backend on port :{port}"
-        # )
-        # LOG.info("Initializing DDP training process")
-
-        # world_size = self.cfg.trainer.gpus
-        # batch_size = self.cfg.learning.batch_size
-        # num_epochs = self.cfg.trainer.max_epochs
-
-        # mp.spawn(
-        #     self.train,
-        #     args=(
-        #         world_size,
-        #         port,
-        #         datamodule,
-        #         verb_save_path,
-        #         noun_save_path,
-        #         batch_size,
-        #         num_epochs,
-        #     ),
-        #     nprocs=self.cfg.learning.ddp.nprocs,
-        #     join=True,
-        # )
-
-        # writer.close()
-
-    # def ddp_shutdown(self):
-    #     if dist.is_initialized():
-    #         destroy_process_group()
-
-    # def ddp_loop(
-    #     self,
-    #     num_epochs: int,
-    #     snapshot_save_path: Path,
-    #     val_every_n_steps: int,
-    #     key: str,
-    #     rank
-    # ):
-    #     steps_per_run = len(self.train_loader)
-    #     for epoch in tqdm(range(num_epochs)):
-    #         self.train_loader.sampler.set_epoch(epoch)
-    #         train_loss, train_acc = self._train(self.train_loader, key)
-    #         self.train_loss_history.append(train_loss)
-    #         self.train_accuracy_history.append(train_acc)
-
-    #         if epoch % val_every_n_steps == 0:
-    #             self.val_loader.sampler.set_epoch(epoch)
-    #             val_loss, val_acc = self._validate(self.val_loader, key)
-    #             self.validation_loss_history.append(val_loss)
-    #             self.validation_accuracy_history.append(val_acc)
-    #             LOG.info(
-    #                 f"Epoch:{epoch + 1}"
-    #                 + f" Train Loss: {train_loss}"
-    #                 + f" Val Loss: {val_loss}"
-    #                 + f" Train Accuracy: {train_acc:4f}"
-    #                 + f" Validation Accuracy: {val_acc:.4f}"
-    #             )
-    #             if rank == 0:
-    #                 writer.add_scalars(
-    #                     'loss',
-    #                     {'train loss': train_loss, 'val loss': val_loss},
-    #                     steps_per_run*(epoch + 1),
-    #                 )
-    #                 writer.add_scalars(
-    #                     'accuracy',
-    #                     {'train accuracy': train_acc, 'val accuracy': val_acc},
-    #                     steps_per_run*(epoch + 1),
-    #                 )
-    #                 self.save_model(epoch + 1, snapshot_save_path, key)
-    #                 LOG.info(
-    #                     f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
-    #                 )
-    #             if self.early_stopping(val_loss, val_acc):
-    #                 break
-
-    # def _training_loop(self, rank, port, world_size, num_epochs:int = 50, model_save_path = None):
-    #     self.ddp_setup(rank, world_size)
-    #     super().__init__(self.cfg, self.datamodule, device=rank, rank=rank)
-    #     if model_save_path is None:
-    #         model_save_path = self.cfg.save_path  # ? configure a default save_path?
-    #     # torch.cuda.empty_cache()
-    #     verb_save_path = model_save_path / "verbs"
-    #     noun_save_path = model_save_path / "nouns"
-    #     log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
-    #     self.load_models_to_device(rank, train=True, verb=True)
-    #     if rank == 0:
-    #         verb_save_path.mkdir(parents=True, exist_ok=True)
-    #         noun_save_path.mkdir(parents=True, exist_ok=True)
-    #         # example_data = iter(self.test_loader)
-    #         # writer.add_graph(self.verb_model, example_data)
-    #         LOG.info("Created snapshot paths for verbs and nouns")
-    #         LOG.info("---------------- ### PHASE 1: TRAINING VERBS ### ----------------")
-
-    #     self.ddp_loop(num_epochs, verb_save_path, log_every_n_steps, "verb_class", rank)
-    #     dist.barrier()
-    #     train_stats = {
-    #         "train_accuracy": self.train_accuracy_history,
-    #         "train_loss": self.train_loss_history,
-    #         "val_accuracy": self.validation_accuracy_history,
-    #         "val_loss": self.validation_loss_history,
-    #     }
-    #     fname = os.path.join(model_save_path, "train_stats_verbs.pkl")
-    #     if rank == 0:
-    #         write_pickle(train_stats, fname)
-    #         LOG.info("Finished verb training")
-
-    #     self.freeze_feature_extractors()
-    #     torch.cuda.empty_cache()
-    #     self.train_loss_history = []
-    #     self.train_accuracy_history = []
-    #     self.validation_loss_history = []
-    #     self.validation_accuracy_history = []
-    #     self.load_models_to_device(rank, verb=False)
-    #     if rank == 0:
-    #         LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
-
-    #     self.ddp_loop(num_epochs, noun_save_path, log_every_n_steps, "noun_class", rank)
-    #     dist.barrier()
-    #     train_stats = {
-    #         "train_accuracy": self.train_accuracy_history,
-    #         "train_loss": self.train_loss_history,
-    #         "val_accuracy": self.validation_accuracy_history,
-    #         "val_loss": self.validation_loss_history,
-    #     }
-    #     fname = os.path.join(model_save_path, "train_stats_nouns.pkl")
-    #     if rank == 0:
-    #         write_pickle(train_stats, fname)
-    #         LOG.info("Finished noun training")
-    #     # finally:
-    #     if rank == 0:
-    #         LOG.info("Training completed!")
-    #     self.ddp_shutdown()
-
-
-# @hydra.main(config_path="../../configs", config_name="pilot_config", version_base=None)
-# def main(cfg: DictConfig):
-#     LOG.info('Config:\n' + OmegaConf.to_yaml(cfg))
-#     ddp = cfg.learning.get("ddp", False)
-#     data_module = EpicActionRecognitionDataModule(cfg)
-#     recognition_module = EpicActionRecognitionModule(cfg, data_module)
-#     LOG.info("Starting training....")
-#     # if ddp:
-#     #     ddp_setup(cfg.learning.ddp.backend)
-#     recognition_module.run_training_loop(cfg.trainer.max_epochs, Path(cfg.model.save_path))
-#     # if ddp:
-#     #     destroy_process_group()
-#     LOG.info("Training completed")
-
-# if __name__ == "__main__":
-#     main()
+    #     return epoch, attention_model

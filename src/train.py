@@ -18,7 +18,7 @@ from utils import ActionMeter, get_device, get_loggers, log_print, write_pickle
 from tqdm import tqdm
 
 LOG = get_loggers(__name__, filename="data/pilot-01/logs/train.log")
-writer = SummaryWriter("data/pilot-01/runs-usha")
+writer = SummaryWriter("data/pilot-01/runs_2")
 
 
 def debug(loader):
@@ -33,7 +33,7 @@ def debug(loader):
 
 def set_env_ddp():
     # required unless ACS is disabled on host. Ref: https://github.com/NVIDIA/nccl/issues/199
-    # os.environ["NCCL_P2P_DISABLE"] = "1"
+    os.environ["NCCL_P2P_DISABLE"] = "1"
     # debugging
     os.environ["NCCL_DEBUG"] = "INFO"
     os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
@@ -56,7 +56,7 @@ def run_ddp(system, datamodule, port, verb_save_path, noun_save_path, ddp_fn):
     nprocs = system.cfg.learning.ddp.nprocs
     if nprocs == 'gpu':
         nprocs = world_size
-    print(f'mp.spawn args - world_size={world_size}, nprocs={nprocs}')
+    # print(f'mp.spawn args - world_size={world_size}, nprocs={nprocs}')
     mp.spawn(
         ddp_fn,
         args=(
@@ -89,7 +89,7 @@ def ddp_train(
     verb_save_path,
     noun_save_path,
     batch_size,
-    num_epochs,
+    num_epochs
 ):
     ddp_setup(rank, world_size, free_port, "nccl")  # should be taken from cfg
     system.device = torch.device(rank)
@@ -104,26 +104,46 @@ def ddp_train(
         validation_accuracy_history,
     ) = ([], [], [], [])
 
-    def ddp_loop(ddp_model, snapshot_save_path, key, tqdm_desc="training loop"):
-        for epoch in tqdm(range(num_epochs), desc=tqdm_desc, position=0):
+    verb_snapshot_path = noun_snapshot_path = None
+    if system.cfg.trainer.get('load_snapshot', False):
+        verb_snapshot_path=system.cfg.trainer.load_snapshot.get('verb_snapshot_path', None)
+        if verb_snapshot_path is not None:
+            verb_snapshot_path = Path(verb_snapshot_path)
+        noun_snapshot_path=system.cfg.trainer.load_snapshot.get('noun_snapshot_path', None)
+        if noun_snapshot_path is not None:
+            noun_snapshot_path = Path(noun_snapshot_path)
+
+    def ddp_loop(ddp_model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0):
+        for epoch in tqdm(range(epoch_start, num_epochs), desc=tqdm_desc, position=0):
             train_loader.sampler.set_epoch(epoch)
             train_loss_meter = ActionMeter("train loss")
             train_acc_meter = ActionMeter("train accuracy")
+            i = 0
             for batch in tqdm(
                 train_loader,
-                desc="train_loader",
+                desc=f"train_loader epoch: {epoch+1}",
                 total=len(train_loader),
                 leave=False,
             ):
                 batch_acc, batch_loss = system._step(batch, ddp_model, key)
                 train_acc_meter.update(batch_acc, batch_size)
                 train_loss_meter.update(batch_loss.item(), batch_size)
+                # LOG.debug(f'Rank[{rank}] epoch/step: {epoch}/{i}, batch_loss: {batch_loss.item()}, batch_acc: {batch_acc}')
                 system.backprop(ddp_model, batch_loss)
+                i += 1
 
             train_loss = train_loss_meter.get_average_values()
             train_acc = train_acc_meter.get_average_values()
             train_loss_history.append(train_loss)
             train_accuracy_history.append(train_acc)
+            log_print(
+                LOG, 
+                "Training metrics (each epoch)\n", + \
+                '{\n' + \
+                f"train loss: {train_loss}\n", + \
+                f"train acc: {train_acc}\n", + \
+                "}\n"
+            )
             if rank == 0:
                 writer.add_scalars(
                     "Training metrics (each epoch)",
@@ -144,7 +164,7 @@ def ddp_train(
                 with torch.no_grad():
                     for batch in tqdm(
                         val_loader, 
-                        desc="val_loader", 
+                        desc=f"val_loader epoch: {epoch+1}", 
                         total=len(val_loader), 
                         leave=False
                     ): 
@@ -193,42 +213,50 @@ def ddp_train(
             system.flow_model.train()
 
     # VERB TRAINING
-    # system.load_models_to_device(device=rank, verb=True)
+    system.load_models_to_device(device=rank, verb=True)
 
-    # (
-    #     train_loss_history,
-    #     validation_loss_history,
-    #     train_accuracy_history,
-    #     validation_accuracy_history,
-    # ) = ([], [], [], [])
+    (
+        train_loss_history,
+        validation_loss_history,
+        train_accuracy_history,
+        validation_accuracy_history,
+    ) = ([], [], [], [])
 
-    # assert system.verb_embeddings is not None, "verb embeddings not initialized"
-    # assert system.verb_map is not None, "verb map not initialized"
+    assert system.verb_embeddings is not None, "verb embeddings not initialized"
+    assert system.verb_map is not None, "verb map not initialized"
 
-    # verb_model = AttentionModel(system.verb_map).to(rank)
-    # ddp_model = DDP(verb_model, device_ids=[rank])
-    # if rank == 0:
-    #     log_print(
-    #         LOG,
-    #         "---------------- ### PHASE 1: TRAINING VERBS ### ----------------",
-    #         "info",
-    #     )
-    # key = "verb_class"
-    # system.opt = system.get_optimizer(ddp_model)
-    # ddp_loop(ddp_model, verb_save_path, key, "training loop (verbs)")
-    # dist.barrier()
-    # train_stats = {
-    #     "train_accuracy": train_accuracy_history,
-    #     "train_loss": train_loss_history,
-    #     "val_accuracy": validation_accuracy_history,
-    #     "val_loss": validation_loss_history,
-    # }
+    verb_model = AttentionModel(system.verb_map).to(rank)
+    opt_sd = None
+    epoch_start = 0
+    if verb_snapshot_path is not None:
+        epoch_start, opt_sd = system.load_snapshot(verb_snapshot_path, torch.device(rank), verb_model, model_key='ddp_model')
+        LOG.info(f"Loaded state dict for models from {verb_snapshot_path}, starting at epoch {epoch_start}")
+    ddp_model = DDP(verb_model, device_ids=[rank])
+    key = "verb_class"
+    system.opt = system.get_optimizer(ddp_model)
+    if opt_sd is not None:
+        system.opt.load_state_dict(opt_sd)
+        LOG.info(f"Loaded state dict for optimizer from {verb_snapshot_path}, starting at epoch {epoch_start}")
+    if rank == 0:
+        log_print(
+            LOG,
+            "---------------- ### PHASE 1: TRAINING VERBS ### ----------------",
+            "info",
+        )
+    ddp_loop(ddp_model, verb_save_path, key, "training loop (verbs)", epoch_start)
+    dist.barrier()
+    train_stats = {
+        "train_accuracy": train_accuracy_history,
+        "train_loss": train_loss_history,
+        "val_accuracy": validation_accuracy_history,
+        "val_loss": validation_loss_history,
+    }
 
-    # # Write training stats for analysis
-    # fname = os.path.join(system.cfg.model.save_path, "train_stats_verbs.pkl")
-    # if rank == 0:
-    #     write_pickle(train_stats, fname)
-    #     LOG.info("Finished verb training")
+    # Write training stats for analysis
+    fname = os.path.join(system.cfg.model.save_path, "train_stats_verbs.pkl")
+    if rank == 0:
+        write_pickle(train_stats, fname)
+        LOG.info("Finished verb training")
 
     # NOUN TRAINING
     system.load_models_to_device(rank, verb=True)
@@ -242,17 +270,25 @@ def ddp_train(
     # system.freeze_feature_extractors()
     key = "noun_class"
     torch.cuda.empty_cache()
+    epoch_start = 0
     system.load_models_to_device(rank, verb=False)
     noun_model = AttentionModel(system.noun_map).to(rank)
+    opt_sd = None
+    if noun_snapshot_path is not None:
+        epoch_start, opt_sd = system.load_snapshot(noun_snapshot_path, torch.device(rank), noun_model, 'ddp_model')
+        LOG.info(f"Loaded state dict for models from {noun_snapshot_path}, starting at epoch {epoch_start}")
     ddp_model = DDP(noun_model, device_ids=[rank])
     system.opt = system.get_optimizer(ddp_model)
+    if opt_sd is not None:
+        system.opt.load_state_dict(opt_sd)
+        LOG.info(f"Loaded state dict for optimizer from {noun_snapshot_path}, starting at epoch {epoch_start}")
     if rank == 0:
         log_print(
             LOG,
             "---------------- ### PHASE 2: TRAINING NOUNS ### ----------------",
             "info",
         )
-    ddp_loop(ddp_model, noun_save_path, key, "training loop (nouns)")
+    ddp_loop(ddp_model, noun_save_path, key, "training loop (nouns)", epoch_start)
     dist.barrier()
     train_stats = {
         "train_accuracy": train_accuracy_history,

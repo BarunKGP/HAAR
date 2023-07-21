@@ -56,9 +56,7 @@ def get_loggers(
     logger = logging.getLogger(name)
     if filename is not None:
         if filehandler is None:
-            filehandler = RotatingFileHandler(
-                filename=filename, maxBytes=50000, backupCount=3
-            )
+            filehandler = logging.FileHandler(filename=filename)
         handlers.append((filehandler, filelevel))
 
     for handler, level in handlers:
