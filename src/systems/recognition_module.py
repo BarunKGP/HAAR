@@ -34,7 +34,7 @@ from systems.data_module import EpicActionRecognitionDataModule
 from utils import ActionMeter, get_device, get_loggers, write_pickle, log_print
 
 LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/recog.log")
-writer = SummaryWriter("data/pilot-01/runs")
+writer = SummaryWriter("data/pilot-01/runs_2")
 
 
 def get_open_port():
@@ -299,7 +299,7 @@ class EpicActionRecognitionModule(object):
         train_loss_meter = ActionMeter("train loss")
         train_acc_meter = ActionMeter("train accuracy")
         batch_size = self.cfg.learning.batch_size
-        model = self.verb_model if key == "verb_class" else self.noun_model
+        model = verb_model if key == "verb_class" else self.noun_model
         for batch in tqdm(
             loader, desc="train_loader", total=len(loader), position=0, leave=True
         ):
@@ -372,7 +372,6 @@ class EpicActionRecognitionModule(object):
         feats = torch.hstack((rgb_feats, flow_feats, narration_feats.to(self.device)))
 
         # Predictions
-        # predictions = model(feats, labels, )
         if key == "verb_class":
             predictions = model(feats, labels, self.verb_embeddings)
         else:
@@ -388,6 +387,7 @@ class EpicActionRecognitionModule(object):
     def backprop(self, model, loss):
         assert self.opt is not None, "Optimizer has not been initialized"
         model.zero_grad()
+        self.opt.zero_grad()
         loss.backward()
         clip_grad_norm_(model.parameters(), self.cfg.trainer.gradient_clip_val)
         self.opt.step()
@@ -416,8 +416,8 @@ class EpicActionRecognitionModule(object):
         self.rgb_model.to(device)
         self.flow_model.to(device)
         # self.narration_model.to(device)
-        self.rgb_model.train()
-        self.flow_model.train()
+        # self.rgb_model.train()
+        # self.flow_model.train()
 
         if verb:
             self.verb_embeddings = self.get_embeddings("verb").to(device)
@@ -461,8 +461,7 @@ class EpicActionRecognitionModule(object):
             model_save_path (str, optional): path to save model during
                 and after training. Defaults to self.save_path
         """
-        if model_save_path is None:
-            model_save_path = self.cfg.save_path  # ? configure a default save_path?
+       
         train_loader = datamodule.train_dataloader()
         val_loader = datamodule.val_dataloader()
         self.load_models_to_device(verb=True)

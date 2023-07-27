@@ -3,8 +3,8 @@ seed: 42
 data:
   frame_count: 32
   _root_gulp_dir: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/gulp
-  worker_count: 0
-  pin_memory: yes
+  worker_count: 3 # needs tuning
+  pin_memory: True
   verb_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_verb_classes.csv
   noun_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_noun_classes_v2.csv
   rgb:
@@ -57,17 +57,18 @@ model:
     pretrained: True
 
 learning:
-  batch_size: 6
+  batch_size: 4
   val_batch_size: 24
   optimizer:
     type: SGD
     momentum: 0.9
     weight_decay: 5e-4
-  ddp: 
-    nprocs: 3
-    backend: nccl
-    master_port: 12787
-  lr: 0.05
+  # ddp: 
+  #   nprocs: 3
+  #   backend: nccl
+  #   master_port: 12364
+  #   nccl_p2p_disable: 0
+  lr: 0.001
   lr_scheduler:
     type: StepLR
     gamma: 0.1
@@ -75,6 +76,8 @@ learning:
   
 
 trainer:
+  verb: True
+  noun: True
   gradient_clip_val: 20
   max_epochs: 100
   early_stopping:
@@ -84,6 +87,7 @@ trainer:
   load_snapshot:
     verb_snapshot_path: data/train_run/verbs/checkpoint_5.pt
   # Write metrics to tensorboard logs every X iterations
+  tb_runs: ???
   log_every_n_steps: 5
   weights_summary: full
   benchmark: yes
