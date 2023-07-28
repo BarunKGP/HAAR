@@ -1,7 +1,7 @@
 from pathlib import Path
 import sys
 import os
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import hydra
 from tqdm import tqdm
 
@@ -15,11 +15,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from models.models import AttentionModel
 from systems.recognition_module import EpicActionRecognitionModule, DDPRecognitionModule
 from systems.data_module import EpicActionRecognitionDataModule
-from utils import ActionMeter, get_device, get_loggers, log_print, write_pickle
+from utils import ActionMeter, get_device, get_loggers, log_print, write_pickle, close_logger
 
 
-LOG = get_loggers(__name__, filename="data/pilot-01/logs/train_usha.log")
-writer = SummaryWriter("data/pilot-01/runs_2")
+LOG = get_loggers(__name__, filename="data/pilot-01/logs/train_temp.log")
+# writer = SummaryWriter("data/pilot-01/runs_2")
 
 
 def debug(loader):
@@ -119,22 +119,24 @@ def train(
     def train_one_epoch(model, epoch_index):
         running_loss = avg_loss = avg_acc = 0.
         # train_loss_meter = ActionMeter("train loss")
-        # train_acc_meter = ActionMeter("train accuracy")
-        for i, batch in tqdm(
+        train_acc_meter = ActionMeter("train accuracy")
+        for i, batch in  tqdm(
             enumerate(train_loader), 
             desc=f"train_loader epoch {epoch_index + 1}/{num_epochs}", 
             total=steps_per_run, 
             leave=False
         ):
             batch_acc, batch_loss = system._step(batch, model, key)
-            running_loss += batch_loss.item()
-            # train_acc_meter.update(batch_acc, batch_size)
+            avg_loss += batch_loss.item()
+            avg_acc += batch_acc
+            train_acc_meter.update(batch_acc, batch_size)
             # train_loss_meter.update(batch_loss.item(), batch_size)
             system.backprop(model, batch_loss)
 
             if (i + 1) % log_every_n_steps == 0:
-                avg_loss = running_loss / log_every_n_steps
-                avg_acc = batch_acc # train_acc_meter.get_average_values()
+                running_loss += avg_loss
+                avg_loss = avg_loss / log_every_n_steps
+                avg_acc = avg_acc / log_every_n_steps # train_acc_meter.get_average_values()
                 # log_print(
                 #     LOG, 
                 #     f'batch: {i + 1} \t loss: {avg_loss} \t accuracy: {avg_acc}'
@@ -150,29 +152,24 @@ def train(
                 )
                 # train_loss_meter.reset()
                 # train_acc_meter.reset()
-                running_loss = 0.0
+                avg_loss = avg_acc = 0.0
         
-        return avg_loss, avg_acc
+        return running_loss / steps_per_run, train_acc_meter.get_average_values()
 
 
     def train_loop(model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0):
+        best_val_acc = 0.
+        log_print(LOG, f'len(train_loader) = {len(train_loader)} = {steps_per_run}')
         for epoch in tqdm(range(epoch_start, num_epochs), desc=tqdm_desc, position=0):
             model.train(True)
             train_loss, train_acc = train_one_epoch(model, epoch)
             train_loss_history.append(train_loss)
             train_accuracy_history.append(train_acc)
-            log_print(
-            LOG, 
-            "Training metrics (each epoch)\n{\n"
-            + f"\ttrain loss: {train_loss}\n"
-            + f"\ttrain acc: {train_acc}\n"
-            + "}\n"
-            )
             
             # Validation
             model.eval()
-            # system.rgb_model.eval()
-            # system.flow_model.eval()
+            system.rgb_model.eval()
+            system.flow_model.eval()
             # val_loss_meter = ActionMeter("val loss")
             val_acc_meter = ActionMeter("val accuracy")
             running_vloss = 0.0
@@ -191,13 +188,17 @@ def train(
             # val_loss = val_loss_meter.get_average_values()
             val_loss = running_vloss / len(val_loader)
             val_acc = val_acc_meter.get_average_values()
+            best_val_acc = max(best_val_acc, val_acc)
             validation_loss_history.append(val_loss)
             validation_accuracy_history.append(val_acc)
+            if system.lr_scheduler is not None:
+                system.lr_scheduler.step(val_loss)
+
             log_print(
                 LOG,
                 f"[Epoch {epoch + 1}/{num_epochs}]"
                 + f" Train Loss/Val Loss: {train_loss} / {val_loss}"
-                + f"\t\tTrain Accuracy/Val Accuracy: {train_acc:4f} / {val_acc:.4f}",
+                + f"\tTrain Accuracy/Val Accuracy: {train_acc:4f} / {val_acc:.4f}",
                 "info",
             )
             writer.add_scalars(
@@ -216,10 +217,14 @@ def train(
                 },
                 steps_per_run * (epoch + 1),
             )
-            system.save_model(model, epoch + 1, snapshot_save_path)
+            system.save_model(model, val_acc, best_val_acc, epoch + 1, snapshot_save_path)
             LOG.info(
                 f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
             )
+
+            model.train()
+            system.rgb_model.train()
+            system.flow_model.train()
             if system.early_stopping(val_loss, val_acc):
                 break
 
@@ -240,16 +245,20 @@ def train(
         assert system.verb_map is not None, "verb map not initialized"
 
         verb_model = AttentionModel(system.verb_map).to(device)
-        opt_sd = None
+        opt_sd = lr_scheduler_sd = None
         epoch_start = 0
         if verb_snapshot_path is not None:
-            epoch_start, opt_sd = system.load_snapshot(verb_snapshot_path, device, verb_model, model_key='attention_model')
+            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(verb_snapshot_path, device, verb_model, model_key='attention_model')
             LOG.info(f"Loaded state dict for models from {verb_snapshot_path}, starting at epoch {epoch_start}")
         key = "verb_class"
         system.opt = system.get_optimizer(verb_model)
         if opt_sd is not None:
             system.opt.load_state_dict(opt_sd)
-            LOG.info(f"Loaded state dict for optimizer from {verb_snapshot_path}, starting at epoch {epoch_start}")
+            LOG.info(f"Loaded state dict for optimizer from {verb_snapshot_path}")
+        system.lr_scheduler = system.get_lr_scheduler()
+        if lr_scheduler_sd is not None:
+            system.lr_scheduler.load_state_dict(lr_scheduler_sd)
+            LOG.info(f"Loaded state dict for LR scheduler from {verb_snapshot_path}")
         log_print(
             LOG,
             "---------------- ### PHASE 1: TRAINING VERBS ### ----------------",
@@ -285,14 +294,17 @@ def train(
         epoch_start = 0
         system.load_models_to_device(device, verb=False)
         noun_model = AttentionModel(system.noun_map).to(device)
-        opt_sd = None
+        opt_sd = lr_scheduler_sd = None
         if noun_snapshot_path is not None:
-            epoch_start, opt_sd = system.load_snapshot(noun_snapshot_path, device, noun_model, 'attention_model')
+            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(noun_snapshot_path, device, noun_model, 'attention_model')
             LOG.info(f"Loaded state dict for models from {noun_snapshot_path}, starting at epoch {epoch_start}")
         system.opt = system.get_optimizer(noun_model)
         if opt_sd is not None:
             system.opt.load_state_dict(opt_sd)
-            LOG.info(f"Loaded state dict for optimizer from {noun_snapshot_path}, starting at epoch {epoch_start}")
+            LOG.info(f"Loaded state dict for optimizer from {noun_snapshot_path}")
+        if lr_scheduler_sd is not None:
+            system.lr_scheduler.load_state_dict(lr_scheduler_sd)
+            LOG.info(f"Loaded state dict for LR scheduler from {noun_snapshot_path}")
         log_print(
             LOG,
             "---------------- ### PHASE 2: TRAINING NOUNS ### ----------------",
@@ -321,19 +333,145 @@ def ddp_train(
     batch_size,
     num_epochs
 ):
-    ddp_setup(rank, world_size, free_port, "nccl")  # should be taken from cfg
+    ddp_setup(rank, world_size, free_port, system.cfg.learning.ddp.backend)  # should be taken from cfg
+    global_rank = dist.get_rank()
     system.device = torch.device(rank)
     train_loader = datamodule.train_dataloader(rank)
     val_loader = datamodule.val_dataloader(rank)
     log_every_n_steps = system.cfg.trainer.get("log_every_n_steps", 1)
     val_batch_size = system.cfg.learning.val_batch_size
     steps_per_run = len(train_loader)
+    writer = SummaryWriter(system.cfg.trainer.tb_runs)
     (
         train_loss_history,
         validation_loss_history,
         train_accuracy_history,
         validation_accuracy_history,
     ) = ([], [], [], [])
+
+
+    def ddp_one_epoch(model, epoch_index):
+        ''' Trains DDP model for one epoch and logs loss and accuracy 
+        to Tensorboard.
+
+        Args:
+            model: DDP model to train
+            epoch_index: current epoch index being trained
+
+        Returns:
+            (avg_train_loss, avg_train_acc): Tuple containing average
+            training loss and accuracy for that epoch
+        '''
+        running_loss = avg_loss = 0.
+        acc_meter = ActionMeter("accuracy")
+        for i, batch in enumerate(train_loader):
+            batch_acc, batch_loss = system._step(batch, ddp_model, key)
+            avg_loss += batch_loss.item()
+            avg_acc += batch_acc
+            acc_meter.update(batch_acc, system.cfg.learning.batch_size)
+            system.backprop(ddp_model, batch_loss)
+
+            if (i + 1) % log_every_n_steps == 0:
+                running_loss += avg_loss
+                avg_loss = avg_loss / log_every_n_steps
+                avg_acc = avg_acc / log_every_n_steps # train_acc_meter.get_average_values()
+                tb_steps = epoch_index * steps_per_run + i + 1
+                writer.add_scalars(
+                    'Real-time training metrics',
+                    {
+                        "train loss": avg_loss,
+                        "train accuracy": avg_acc
+                    },
+                    tb_steps
+                )
+                avg_loss = avg_acc = 0.0
+        
+        return running_loss/steps_per_run, acc_meter.get_average_values()
+
+
+    def ddp_loop(ddp_model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0):
+        best_val_acc = 0.
+        for epoch in tqdm(
+            range(epoch_start, num_epochs), 
+            desc=tqdm_desc + f'[Epoch {epoch + 1}/{num_epochs}]', 
+            position=0
+        ):
+            train_loader.sampler.set_epoch(epoch)
+            train_loss, train_acc = ddp_one_epoch(ddp_model, epoch)
+            train_loss_history.append(train_loss) 
+            train_accuracy_history.append(train_acc)
+            writer.add_scalars(
+                "Training metrics (each epoch)",
+                {
+                    "train loss": train_loss,
+                    "train acc": train_acc,
+                },
+                steps_per_run * (epoch + 1),
+            )
+            # Validation
+            val_loader.sampler.set_epoch(epoch)
+            ddp_model.eval()
+            system.rgb_model.eval()
+            system.flow_model.eval()
+            val_loss_meter = ActionMeter("val loss")
+            val_acc_meter = ActionMeter("val accuracy")
+            with torch.no_grad():
+                running_vloss = 0.
+                for batch in val_loader:
+                # for batch in tqdm(
+                #     val_loader, 
+                #     desc=f"val_loader epoch: {epoch+1}", 
+                #     total=len(val_loader), 
+                #     leave=False
+                # ): 
+                    batch_acc, batch_loss = system._step(batch, ddp_model, key)
+                    val_acc_meter.update(batch_acc, val_batch_size)
+                    running_vloss += batch_loss.item()
+                    # val_loss_meter.update(batch_loss.item(), val_batch_size)
+                # val_loss = val_loss_meter.get_average_values()
+                val_loss = running_vloss / len(val_loader)
+                val_acc = val_acc_meter.get_average_values()
+                best_val_acc = max(best_val_acc, val_acc)
+                validation_loss_history.append(val_loss)
+                validation_accuracy_history.append(val_acc)
+                if system.lr_scheduler is not None:
+                    system.lr_scheduler.step(val_loss)
+
+            if global_rank == 0:
+                log_print(
+                    LOG,
+                    f"Epoch:{epoch + 1}"
+                    + f" Train Loss/Val Loss: {train_loss:4f}/{val_loss:4f}"
+                    + f" Train Accuracy/Val Accuracy: {train_acc:4f}/{val_acc:.4f}",
+                    "info",
+                )
+                system.save_model(ddp_model, val_acc, best_val_acc, epoch + 1, snapshot_save_path)
+                LOG.info(
+                    f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
+                )
+
+            writer.add_scalars(
+                tqdm_desc + ": Loss",
+                {
+                    "train loss": train_loss, 
+                    "val loss": val_loss,
+                },
+                steps_per_run * (epoch + 1),
+            )
+            writer.add_scalars(
+                tqdm_desc + ": Accuracy",
+                {
+                    "train accuracy": train_acc, 
+                    "val accuracy": val_acc
+                },
+                steps_per_run * (epoch + 1),
+            )
+            if system.early_stopping(val_loss, val_acc):
+                break
+            ddp_model.train()
+            system.rgb_model.train()
+            system.flow_model.train()
+
 
     verb_snapshot_path = noun_snapshot_path = None
     if 'load_snapshot' in system.cfg.trainer:
@@ -343,111 +481,9 @@ def ddp_train(
         noun_snapshot_path=system.cfg.trainer.load_snapshot.get('noun_snapshot_path', None)
         if noun_snapshot_path is not None:
             noun_snapshot_path = Path(noun_snapshot_path)
-
-    def ddp_loop(ddp_model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0):
-        global_rank = dist.get_rank()
-        for epoch in tqdm(range(epoch_start, num_epochs), desc=tqdm_desc, position=0):
-            train_loader.sampler.set_epoch(epoch)
-            train_loss_meter = ActionMeter("train loss")
-            train_acc_meter = ActionMeter("train accuracy")
-            i = 0
-            for i, batch in enumerate(
-                tqdm(
-                    train_loader,
-                    desc=f"train_loader epoch: {epoch+1}",
-                    total=len(train_loader),
-                    leave=False,
-                )
-            ):
-                batch_acc, batch_loss = system._step(batch, ddp_model, key)
-                train_acc_meter.update(batch_acc, batch_size)
-                train_loss_meter.update(batch_loss.item(), batch_size)
-                if global_rank == 0:  
-                    log_print(LOG, f'Rank[{rank}] epoch/step: {epoch}/{i}, batch_loss: {batch_loss.item()}, batch_acc: {batch_acc}')
-                system.backprop(ddp_model, batch_loss)
-                i += 1
-
-            train_loss = train_loss_meter.get_average_values()
-            train_acc = train_acc_meter.get_average_values()
-            train_loss_history.append(train_loss)
-            train_accuracy_history.append(train_acc)
-            if global_rank == 0:
-                log_print(
-                LOG, 
-                "Training metrics (each epoch)\n{\n"
-                + f"\ttrain loss: {train_loss}\n"
-                + f"\ttrain acc: {train_acc}\n"
-                + "}\n"
-                )
-                writer.add_scalars(
-                    "Training metrics (each epoch)",
-                    {
-                        "train loss": train_loss,
-                        "train acc": train_acc,
-                    },
-                    steps_per_run * (epoch + 1),
-                )
-            # Validation
-            if (epoch + 1) % log_every_n_steps == 0:
-                val_loader.sampler.set_epoch(epoch)
-                ddp_model.eval()
-                system.rgb_model.eval()
-                system.flow_model.eval()
-                val_loss_meter = ActionMeter("val loss")
-                val_acc_meter = ActionMeter("val accuracy")
-                with torch.no_grad():
-                    for batch in tqdm(
-                        val_loader, 
-                        desc=f"val_loader epoch: {epoch+1}", 
-                        total=len(val_loader), 
-                        leave=False
-                    ): 
-                        batch_acc, batch_loss = system._step(batch, ddp_model, key)
-                        val_acc_meter.update(batch_acc, val_batch_size)
-                        val_loss_meter.update(batch_loss.item(), val_batch_size)
-
-                val_loss = val_loss_meter.get_average_values()
-                val_acc = val_acc_meter.get_average_values()
-                validation_loss_history.append(val_loss)
-                validation_accuracy_history.append(val_acc)
-                if rank == 0:
-                    log_print(
-                        LOG,
-                        f"Epoch:{epoch + 1}"
-                        + f" Train Loss: {train_loss}"
-                        + f" Val Loss: {val_loss}"
-                        + f" Train Accuracy: {train_acc:4f}"
-                        + f" Validation Accuracy: {val_acc:.4f}",
-                        "info",
-                    )
-                    writer.add_scalars(
-                        tqdm_desc + ": Loss",
-                        {
-                            "train loss": train_loss, 
-                            "val loss": val_loss,
-                        },
-                        steps_per_run * (epoch + 1),
-                    )
-                    writer.add_scalars(
-                        tqdm_desc + ": Accuracy",
-                        {
-                            "train accuracy": train_acc, 
-                            "val accuracy": val_acc
-                        },
-                        steps_per_run * (epoch + 1),
-                    )
-                    system.save_model(ddp_model, epoch + 1, snapshot_save_path)
-                    LOG.info(
-                        f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
-                    )
-                if system.early_stopping(val_loss, val_acc):
-                    break
-            ddp_model.train()
-            system.rgb_model.train()
-            system.flow_model.train()
-
     train_verb = system.cfg.trainer.get("verb", True)
     train_noun = system.cfg.trainer.get("noun", True)
+
     # VERB TRAINING
     if train_verb:
         system.load_models_to_device(device=rank, verb=True)
@@ -463,10 +499,10 @@ def ddp_train(
         assert system.verb_map is not None, "verb map not initialized"
 
         verb_model = AttentionModel(system.verb_map).to(rank)
-        opt_sd = None
+        opt_sd = lr_scheduler_sd = None
         epoch_start = 0
         if verb_snapshot_path is not None:
-            epoch_start, opt_sd = system.load_snapshot(verb_snapshot_path, torch.device(rank), verb_model, model_key='ddp_model')
+            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(verb_snapshot_path, torch.device(rank), verb_model, model_key='ddp_model')
             LOG.info(f"Loaded state dict for models from {verb_snapshot_path}, starting at epoch {epoch_start}")
         ddp_model = DDP(verb_model, device_ids=[rank])
         key = "verb_class"
@@ -474,14 +510,14 @@ def ddp_train(
         if opt_sd is not None:
             system.opt.load_state_dict(opt_sd)
             LOG.info(f"Loaded state dict for optimizer from {verb_snapshot_path}, starting at epoch {epoch_start}")
-        if rank == 0:
+        if global_rank == 0:
             log_print(
                 LOG,
                 "---------------- ### PHASE 1: TRAINING VERBS ### ----------------",
                 "info",
             )
         ddp_loop(ddp_model, verb_save_path, key, "training loop (verbs)", epoch_start)
-        dist.barrier()
+        # dist.barrier()
         train_stats = {
             "train_accuracy": train_accuracy_history,
             "train_loss": train_loss_history,
@@ -512,7 +548,7 @@ def ddp_train(
         epoch_start = 0
         system.load_models_to_device(rank, verb=False)
         noun_model = AttentionModel(system.noun_map).to(rank)
-        opt_sd = None
+        opt_sd = lr_scheduler_sd = None
         if noun_snapshot_path is not None:
             epoch_start, opt_sd = system.load_snapshot(noun_snapshot_path, torch.device(rank), noun_model, 'ddp_model')
             LOG.info(f"Loaded state dict for models from {noun_snapshot_path}, starting at epoch {epoch_start}")
@@ -551,9 +587,11 @@ def ddp_shutdown():
 
 @hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
 def main(cfg: DictConfig):
+    LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
     data_module = EpicActionRecognitionDataModule(cfg)
     verb_path, noun_path = create_snapshot_paths(Path(cfg.model.save_path))
     tb_writer = SummaryWriter(cfg.trainer.tb_runs)
+    print(f'pin memory: {cfg.data.pin_memory} <{type(cfg.data.pin_memory)}>')
     if cfg.learning.get("ddp", False):
         change_port = "Y"
         if cfg.learning.ddp.get('master_port', None) is not None:
@@ -579,6 +617,7 @@ def main(cfg: DictConfig):
             data_module, cfg.trainer.max_epochs, Path(cfg.model.save_path)
         )
     LOG.info("Training completed!")
+    close_logger(LOG)
     sys.exit()  # required to prevent CPU lock (soft bug)
 
 

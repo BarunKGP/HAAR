@@ -46,7 +46,7 @@ model:
   weights: 
     rgb: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_rgb.ckpt
     flow: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_flow.ckpt
-  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/train_run
+  save_path: data/train_run/run_2
   dropout: 0.7
   partial_bn: yes
   shift_div: 8
@@ -57,22 +57,27 @@ model:
     pretrained: True
 
 learning:
-  batch_size: 4
-  val_batch_size: 24
+  batch_size: 8
+  val_batch_size: 32
   optimizer:
-    type: SGD
-    momentum: 0.9
-    weight_decay: 5e-4
-  # ddp: 
-  #   nprocs: 3
-  #   backend: nccl
-  #   master_port: 12364
-  #   nccl_p2p_disable: 0
-  lr: 0.001
+    type: Adam
+    args:
+      weight_decay: 5e-4
+    # momentum: 0.9
+    # weight_decay: 5e-4
+  ddp: 
+    nprocs: 3
+    backend: nccl
+    master_port: 12364
+    nccl_p2p_disable: 0
+  lr: 1e-4
   lr_scheduler:
-    type: StepLR
-    gamma: 0.1
-    epochs: [20, 40]
+    type: ReduceLROnPlateau
+    args:
+      mode: max
+      factor: 0.5
+      patience: 10
+      min_lr: 0.0001
   
 
 trainer:
@@ -88,10 +93,7 @@ trainer:
     verb_snapshot_path: data/train_run/verbs/checkpoint_5.pt
   # Write metrics to tensorboard logs every X iterations
   tb_runs: ???
-  log_every_n_steps: 5
-  weights_summary: full
-  benchmark: yes
-
+  log_every_n_steps: 20
 
 defaults:
   - override hydra/job_logging: colorlog

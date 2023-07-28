@@ -3,6 +3,7 @@
 import sys
 import os
 from pathlib import Path
+from functools import partial
 
 # from contextlib import closing
 import socket
@@ -21,10 +22,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.optim import SGD, Adam
+from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR
 from torch.utils.tensorboard import SummaryWriter
 from constants import (
     NUM_NOUNS,
     NUM_VERBS,
+    DEFAULT_OPT,
+    DEFAULT_ARGS
 )
 from models.tsm import TSM
 from models.models import AttentionModel, WordEmbeddings
@@ -33,7 +37,7 @@ from frame_loader import FrameLoader
 from systems.data_module import EpicActionRecognitionDataModule
 from utils import ActionMeter, get_device, get_loggers, write_pickle, log_print
 
-LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/recog.log")
+LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/recog_temp.log")
 writer = SummaryWriter("data/pilot-01/runs_2")
 
 
@@ -125,7 +129,6 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0, device="cpu"
 class EpicActionRecognitionModule(object):
     def __init__(self, cfg: DictConfig, device=None):
         self.cfg = cfg
-        LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
         self.loss_fn = nn.CrossEntropyLoss()
         self.verb_map = get_word_map(self.cfg.data.verb_loc)
         self.noun_map = get_word_map(self.cfg.data.noun_loc)
@@ -140,6 +143,7 @@ class EpicActionRecognitionModule(object):
         # self.verb_model = None
         # self.noun_model = None
         self.opt = None
+        self.lr_scheduler = None
 
         self.ddp = self.cfg.learning.get("ddp", False)
         if self.ddp:
@@ -184,73 +188,117 @@ class EpicActionRecognitionModule(object):
         assert self.rgb_model is not None, "RGB model has not been initialized"
         assert self.flow_model is not None, "FLow model has not been initialized"
 
+        lr = self.cfg.learning.lr
+        opt_params = [
+            {
+                "params": filter(
+                    lambda p: p.requires_grad, self.rgb_model.parameters()
+                ),
+            },
+            {
+                "params": filter(
+                    lambda p: p.requires_grad, self.flow_model.parameters()
+                ),
+            },
+            {
+                "params": model.parameters()
+            },
+        ]
+        optimizer_map = {
+            "Adam": partial(Adam, opt_params, lr=lr),
+            "SGD": partial(SGD, opt_params, lr=lr),
+        }
+        
         if "optimizer" in self.cfg.learning:
-            cfg = self.cfg.learning.optimizer
-            if cfg["type"] == "Adam":
-                return Adam(
-                    [
-                        {
-                            "params": filter(
-                                lambda p: p.requires_grad, self.rgb_model.parameters()
-                            ),
-                        },
-                        {
-                            "params": filter(
-                                lambda p: p.requires_grad, self.flow_model.parameters()
-                            ),
-                        },
-                        {"params": model.parameters()},
-                        # {"params": self.noun_model.parameters()},
-                    ],
-                    lr=cfg.lr,
-                )
-            elif cfg["type"] == "SGD":
-                return SGD(
-                    [
-                        {
-                            "params": filter(
-                                lambda p: p.requires_grad, self.rgb_model.parameters()
-                            ),
-                        },
-                        {
-                            "params": filter(
-                                lambda p: p.requires_grad, self.flow_model.parameters()
-                            ),
-                        },
-                        {"params": model.parameters()},
-                        # {"params": self.noun_model.parameters()},
-                    ],
-                    lr=self.cfg.learning.lr,
-                    momentum=cfg.momentum,
-                )
-            else:
-                LOG.error(
-                    "Incorrect optimizer chosen. Proceeding with SGD optimizer as default"
-                )
+            opt_key = self.cfg.learning.optimizer.type
+            args = self.cfg.learning.optimizer.get('args', [])
+        else:
+            opt_key = DEFAULT_LR
+            args = DEFAULT_ARGS
+        return optimizer_map[opt_key](**args)
 
-        # Default optimizer
-        lr = 0.01
-        momentum = 0.9
-        return SGD(
-            [
-                {
-                    "params": filter(
-                        lambda p: p.requires_grad, self.rgb_model.parameters()
-                    ),
-                },
-                {
-                    "params": filter(
-                        lambda p: p.requires_grad, self.flow_model.parameters()
-                    ),
-                },
-                {"params": model.parameters()},
-                # {"params": self.noun_model.parameters()},
-            ],
-            lr=lr,
-            momentum=momentum,
-        )
 
-    def save_model(self, model, epoch, path) -> None:
+        # if "optimizer" in self.cfg.learning:
+        #     cfg = self.cfg.learning.optimizer
+        #     if cfg["type"] == "Adam":
+        #         return Adam(
+        #             [
+        #                 {
+        #                     "params": filter(
+        #                         lambda p: p.requires_grad, self.rgb_model.parameters()
+        #                     ),
+        #                 },
+        #                 {
+        #                     "params": filter(
+        #                         lambda p: p.requires_grad, self.flow_model.parameters()
+        #                     ),
+        #                 },
+        #                 {"params": model.parameters()},
+        #                 # {"params": self.noun_model.parameters()},
+        #             ],
+        #             lr=cfg.lr,
+        #         )
+        #     elif cfg["type"] == "SGD":
+        #         return SGD(
+        #             [
+        #                 {
+        #                     "params": filter(
+        #                         lambda p: p.requires_grad, self.rgb_model.parameters()
+        #                     ),
+        #                 },
+        #                 {
+        #                     "params": filter(
+        #                         lambda p: p.requires_grad, self.flow_model.parameters()
+        #                     ),
+        #                 },
+        #                 {"params": model.parameters()},
+        #                 # {"params": self.noun_model.parameters()},
+        #             ],
+        #             lr=self.cfg.learning.lr,
+        #             momentum=cfg.momentum,
+        #         )
+        #     else:
+        #         LOG.error(
+        #             "Incorrect optimizer chosen. Proceeding with SGD optimizer as default"
+        #         )
+
+        # # Default optimizer
+        # lr = 0.01
+        # momentum = 0.9
+        # return SGD(
+        #     [
+        #         {
+        #             "params": filter(
+        #                 lambda p: p.requires_grad, self.rgb_model.parameters()
+        #             ),
+        #         },
+        #         {
+        #             "params": filter(
+        #                 lambda p: p.requires_grad, self.flow_model.parameters()
+        #             ),
+        #         },
+        #         {"params": model.parameters()},
+        #         # {"params": self.noun_model.parameters()},
+        #     ],
+        #     lr=lr,
+        #     momentum=momentum,
+        # )
+
+    
+    def get_lr_scheduler(self):
+        assert self.opt is not None, "No optimizers initialized"
+        scheduler = None
+        if self.cfg.learning.get('lr_scheduler', False):
+            scheduler_map = {
+                "ReduceLROnPlateau": partial(ReduceLROnPlateau, self.opt),
+                "StepLR": partial(StepLR, self.opt),
+            }
+            args = self.cfg.learning.lr_scheduler.args
+            scheduler = scheduler_map[self.cfg.learning.lr_scheduler.type](**args)
+        return scheduler
+
+
+    def save_model(self, model, model_val_acc, best_val_acc, epoch, path, model_key="attention_model") -> None:
         """
         Saves the model state and optimizer state on the dict
 
@@ -261,20 +309,22 @@ class EpicActionRecognitionModule(object):
         """
         assert self.rgb_model is not None, "RGB model has not been initialized"
         assert self.flow_model is not None, "FLow model has not been initialized"
-        assert (
-            self.narration_model is not None
-        ), "Narration model has not been initialized"
-        assert self.opt is not None, "Optimizer has not been initialized"
-        torch.save(
-            {
+        assert model_key in ["attention_model", "ddp_model"], \
+            "Incorrect model_key, must be one of 'attention_model' or 'ddp_model'"
+        if model_val_acc > best_val_acc:
+            save_path = os.path.join(path, f"checkpoint_{epoch}.pt")
+            save_dict = {
                 "epoch": epoch,
                 "rgb_model": self.rgb_model.state_dict(),
                 "flow_model": self.flow_model.state_dict(),
-                "attention_model": model.state_dict(),
+                "attention_model": model.state_dict() if model_key == "attention_model"
+                    else model.module.state_dict(),
                 "optimizer": self.opt.state_dict(),
-            },
-            os.path.join(path, f"checkpoint_{epoch}.pt"),
-        )
+            }
+            if self.lr_scheduler is not None:
+                save_dict["lr_scheduler"] = self.lr_scheduler.state_dict()
+            
+            torch.save(save_dict, save_path)
 
     def load_snapshot(self, snapshot_path, device, attention_model, model_key="attention_model"):
         checkpoint = torch.load(snapshot_path, map_location=device)
@@ -283,72 +333,76 @@ class EpicActionRecognitionModule(object):
         self.flow_model.load_state_dict(checkpoint['flow_model'])
         attention_model.load_state_dict(checkpoint[model_key])
         opt_sd = checkpoint['optimizer']
+        lr_scheduler_sd = checkpoint.get('lr_scheduler', None)
+        # if 'lr_scheduler' in checkpoint:
+        #     assert self.lr_scheduler is not None, "No LR schedulers initialized"
+        #     self.lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
 
-        return epoch, opt_sd
+        return epoch, opt_sd, lr_scheduler_sd
 
 
-    def _train(self, loader, key):
-        """Run the training loop for one epoch.
-        Calculate and return the loss and accuracy.
-        Separate loop for val/test - no backprop.
+    # def _train(self, loader, key):
+    #     """Run the training loop for one epoch.
+    #     Calculate and return the loss and accuracy.
+    #     Separate loop for val/test - no backprop.
 
-        Returns:
-            (float, float, float, float): average loss and accuracy
-        """
-        assert key in ["verb_class", "noun_class"], "invalid key"
-        train_loss_meter = ActionMeter("train loss")
-        train_acc_meter = ActionMeter("train accuracy")
-        batch_size = self.cfg.learning.batch_size
-        model = verb_model if key == "verb_class" else self.noun_model
-        for batch in tqdm(
-            loader, desc="train_loader", total=len(loader), position=0, leave=True
-        ):
-            batch_acc, batch_loss = self._step(batch, model, key)
-            train_acc_meter.update(batch_acc, batch_size)
-            train_loss_meter.update(batch_loss.item(), batch_size)
+    #     Returns:
+    #         (float, float, float, float): average loss and accuracy
+    #     """
+    #     assert key in ["verb_class", "noun_class"], "invalid key"
+    #     train_loss_meter = ActionMeter("train loss")
+    #     train_acc_meter = ActionMeter("train accuracy")
+    #     batch_size = self.cfg.learning.batch_size
+    #     model = verb_model if key == "verb_class" else self.noun_model
+    #     for batch in tqdm(
+    #         loader, desc="train_loader", total=len(loader), position=0, leave=True
+    #     ):
+    #         batch_acc, batch_loss = self._step(batch, model, key)
+    #         train_acc_meter.update(batch_acc, batch_size)
+    #         train_loss_meter.update(batch_loss.item(), batch_size)
 
-            if key == "verb_class":
-                self.backprop(self.verb_model, batch_loss)
-            else:
-                self.backprop(self.noun_model, batch_loss)
+    #         if key == "verb_class":
+    #             self.backprop(self.verb_model, batch_loss)
+    #         else:
+    #             self.backprop(self.noun_model, batch_loss)
 
-        return (
-            train_loss_meter.get_average_values(),
-            train_acc_meter.get_average_values(),
-        )
+    #     return (
+    #         train_loss_meter.get_average_values(),
+    #         train_acc_meter.get_average_values(),
+    #     )
 
-    def _validate(self, loader, key):
-        assert key in ["verb_class", "noun_class"], "invalid key"
+    # def _validate(self, loader, key):
+    #     assert key in ["verb_class", "noun_class"], "invalid key"
 
-        torch.cuda.empty_cache()
-        if key == "verb_class":
-            assert (
-                self.verb_model is not None
-            ), "AttentionModel has not been initialized"
-            self.verb_model.eval()
-        else:
-            assert (
-                self.noun_model is not None
-            ), "AttentionModel has not been initialized"
-            self.noun_model.eval()
-        model = self.verb_model if key == "verb_class" else self.noun_model
-        val_loss_meter = ActionMeter("val loss")
-        val_acc_meter = ActionMeter("val accuracy")
-        batch_size = self.cfg.learning.batch_size
-        with torch.no_grad():
-            for batch in tqdm(loader, desc="val_loader", total=len(loader)):  # type: ignore
-                batch_acc, batch_loss = self._step(batch, model, key)
-                val_acc_meter.update(batch_acc, batch_size)
-                val_loss_meter.update(batch_loss.item(), batch_size)
+    #     torch.cuda.empty_cache()
+    #     if key == "verb_class":
+    #         assert (
+    #             self.verb_model is not None
+    #         ), "AttentionModel has not been initialized"
+    #         self.verb_model.eval()
+    #     else:
+    #         assert (
+    #             self.noun_model is not None
+    #         ), "AttentionModel has not been initialized"
+    #         self.noun_model.eval()
+    #     model = self.verb_model if key == "verb_class" else self.noun_model
+    #     val_loss_meter = ActionMeter("val loss")
+    #     val_acc_meter = ActionMeter("val accuracy")
+    #     batch_size = self.cfg.learning.batch_size
+    #     with torch.no_grad():
+    #         for batch in tqdm(loader, desc="val_loader", total=len(loader)):  # type: ignore
+    #             batch_acc, batch_loss = self._step(batch, model, key)
+    #             val_acc_meter.update(batch_acc, batch_size)
+    #             val_loss_meter.update(batch_loss.item(), batch_size)
 
-        if key == "verb_class":
-            self.verb_model.train()
-        else:
-            self.noun_model.train()
-        return (
-            val_loss_meter.get_average_values(),
-            val_acc_meter.get_average_values(),
-        )
+    #     if key == "verb_class":
+    #         self.verb_model.train()
+    #     else:
+    #         self.noun_model.train()
+    #     return (
+    #         val_loss_meter.get_average_values(),
+    #         val_acc_meter.get_average_values(),
+    #     )
 
     def _step(self, batch, model, key):
         """One step of the optimization process. This
@@ -359,16 +413,16 @@ class EpicActionRecognitionModule(object):
         assert (
             self.narration_model is not None
         ), "Narration model has not been initialized"
+        assert key in ["verb_class", "noun_class"]
         rgb, flow = batch
         rgb_images, metadata = rgb  # rgb and flow metadata are the same
         flow_images = flow[0]
         labels = metadata[key]
         text = metadata["narration"]
-        # Feature extraction
+        
         rgb_feats = self.rgb_model(rgb_images.to(self.device))
         flow_feats = self.flow_model(flow_images.to(self.device))
         narration_feats = self.narration_model(text)
-        # LOG.info(f'narration feats on: {narration_feats.device}')
         feats = torch.hstack((rgb_feats, flow_feats, narration_feats.to(self.device)))
 
         # Predictions
@@ -386,12 +440,12 @@ class EpicActionRecognitionModule(object):
 
     def backprop(self, model, loss):
         assert self.opt is not None, "Optimizer has not been initialized"
-        model.zero_grad()
-        self.opt.zero_grad()
+        # model.zero_grad(set_to_none=True)
+        self.opt.zero_grad(set_to_none=True)
         loss.backward()
         clip_grad_norm_(model.parameters(), self.cfg.trainer.gradient_clip_val)
         self.opt.step()
-
+        
     def compute_accuracy(self, preds, labels):
         with torch.no_grad():
             preds = torch.argmax(preds, dim=1)
@@ -585,27 +639,27 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
         super().__init__(cfg)
 
 
-    def save_model(self, ddp_model, epoch, path):
+    def save_model(self, ddp_model, model_val_acc, best_val_acc, epoch, path, model_key="attention_model") -> None:
         assert self.rgb_model is not None, "RGB model has not been initialized"
         assert self.flow_model is not None, "FLow model has not been initialized"
-        torch.save(
-            {
-                "epoch": epoch,
-                "rgb_model": self.rgb_model.state_dict(),
-                "flow_model": self.flow_model.state_dict(),
-                "ddp_model": ddp_model.module.state_dict(),
-                "optimizer": self.opt.state_dict(),
-            },
-            os.path.join(path, f"checkpoint_{epoch}.pt"),
-        )
+        assert model_key in ["attention_model", "ddp_model"], \
+            "Incorrect model_key, must be one of 'attention_model' or 'ddp_model'"
+        
+        if model_key == "attention_model":
+            return super().save_model(ddp_model, model_val_acc, best_val_acc, epoch, path, model_key="ddp_model")
+        #! Should be deprecated
+        else:        
+            if model_val_acc > best_val_acc:
+                save_path = os.path.join(path, f"checkpoint_{epoch}.pt")
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "rgb_model": self.rgb_model.state_dict(),
+                        "flow_model": self.flow_model.state_dict(),
+                        "ddp_model": ddp_model.state_dict(),
+                        "optimizer": self.opt.state_dict(),
+                    },
+                    save_path,
+                )
 
-    # def load_snapshot(self, snapshot_path, model, device):
-    #     epoch, new_model = super().load_snapshot(snapshot_path, model, device)
-    #     checkpoint = torch.load(snapshot_path, map_location=device)
-    #     epoch = checkpoint['epoch']
-    #     self.rgb_model.load_state_dict(checkpoint['rgb_model'])
-    #     self.flow_model.load_state_dict(checkpoint['flow_model'])
-    #     ddp_model.load_state_dict(checkpoint['ddp_model'])
-    #     self.opt.load_state_dict(checkpoint['optimizer'])
-
-    #     return epoch, attention_model
+                LOG.info(f"Saved DDP model checkpoint at {save_path}")

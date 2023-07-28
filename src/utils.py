@@ -15,6 +15,13 @@ def get_sec(time_str) -> float:
     h, m, s = time_str.split(":")
     return float(h) * 3600 + float(m) * 60 + float(s)
 
+def close_logger(logger):
+    """ Utility function to close and remove all handlers from a
+    logger
+    """
+    for handler in logger.handlers:
+        logger.removeHandler(handler)
+        handler.close()
 
 def get_loggers(
     name: str,
