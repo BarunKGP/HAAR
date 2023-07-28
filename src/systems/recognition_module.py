@@ -24,12 +24,7 @@ from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR
 from torch.utils.tensorboard import SummaryWriter
-from constants import (
-    NUM_NOUNS,
-    NUM_VERBS,
-    DEFAULT_OPT,
-    DEFAULT_ARGS
-)
+from constants import NUM_NOUNS, NUM_VERBS, DEFAULT_OPT, DEFAULT_ARGS
 from models.tsm import TSM
 from models.models import AttentionModel, WordEmbeddings
 from tqdm import tqdm
@@ -176,14 +171,6 @@ class EpicActionRecognitionModule(object):
         embeddings = self.narration_model(text)
         return embeddings
 
-    def get_model(self, key):
-        if key.lower() == "verb":
-            return self.verb_model
-        elif key.lower() == "noun":
-            return self.noun_model
-        else:
-            raise Exception('Invalid key: choose either "noun" or "verb"')
-
     def get_optimizer(self, model):
         assert self.rgb_model is not None, "RGB model has not been initialized"
         assert self.flow_model is not None, "FLow model has not been initialized"
@@ -200,23 +187,20 @@ class EpicActionRecognitionModule(object):
                     lambda p: p.requires_grad, self.flow_model.parameters()
                 ),
             },
-            {
-                "params": model.parameters()
-            },
+            {"params": model.parameters()},
         ]
         optimizer_map = {
             "Adam": partial(Adam, opt_params, lr=lr),
             "SGD": partial(SGD, opt_params, lr=lr),
         }
-        
+
         if "optimizer" in self.cfg.learning:
             opt_key = self.cfg.learning.optimizer.type
-            args = self.cfg.learning.optimizer.get('args', [])
+            args = self.cfg.learning.optimizer.get("args", [])
         else:
-            opt_key = DEFAULT_LR
+            opt_key = DEFAULT_OPT
             args = DEFAULT_ARGS
         return optimizer_map[opt_key](**args)
-
 
         # if "optimizer" in self.cfg.learning:
         #     cfg = self.cfg.learning.optimizer
@@ -284,11 +268,10 @@ class EpicActionRecognitionModule(object):
         #     momentum=momentum,
         # )
 
-    
     def get_lr_scheduler(self):
         assert self.opt is not None, "No optimizers initialized"
         scheduler = None
-        if self.cfg.learning.get('lr_scheduler', False):
+        if self.cfg.learning.get("lr_scheduler", False):
             scheduler_map = {
                 "ReduceLROnPlateau": partial(ReduceLROnPlateau, self.opt),
                 "StepLR": partial(StepLR, self.opt),
@@ -297,8 +280,15 @@ class EpicActionRecognitionModule(object):
             scheduler = scheduler_map[self.cfg.learning.lr_scheduler.type](**args)
         return scheduler
 
-
-    def save_model(self, model, model_val_acc, best_val_acc, epoch, path, model_key="attention_model") -> None:
+    def save_model(
+        self,
+        model,
+        model_val_acc,
+        best_val_acc,
+        epoch,
+        path,
+        model_key="attention_model",
+    ) -> None:
         """
         Saves the model state and optimizer state on the dict
 
@@ -309,37 +299,41 @@ class EpicActionRecognitionModule(object):
         """
         assert self.rgb_model is not None, "RGB model has not been initialized"
         assert self.flow_model is not None, "FLow model has not been initialized"
-        assert model_key in ["attention_model", "ddp_model"], \
-            "Incorrect model_key, must be one of 'attention_model' or 'ddp_model'"
+        assert model_key in [
+            "attention_model",
+            "ddp_model",
+        ], "Incorrect model_key, must be one of 'attention_model' or 'ddp_model'"
         if model_val_acc > best_val_acc:
             save_path = os.path.join(path, f"checkpoint_{epoch}.pt")
             save_dict = {
                 "epoch": epoch,
                 "rgb_model": self.rgb_model.state_dict(),
                 "flow_model": self.flow_model.state_dict(),
-                "attention_model": model.state_dict() if model_key == "attention_model"
-                    else model.module.state_dict(),
+                "attention_model": model.state_dict()
+                if model_key == "attention_model"
+                else model.module.state_dict(),
                 "optimizer": self.opt.state_dict(),
             }
             if self.lr_scheduler is not None:
                 save_dict["lr_scheduler"] = self.lr_scheduler.state_dict()
-            
+
             torch.save(save_dict, save_path)
 
-    def load_snapshot(self, snapshot_path, device, attention_model, model_key="attention_model"):
+    def load_snapshot(
+        self, snapshot_path, device, attention_model, model_key="attention_model"
+    ):
         checkpoint = torch.load(snapshot_path, map_location=device)
-        epoch = checkpoint['epoch']
-        self.rgb_model.load_state_dict(checkpoint['rgb_model'])
-        self.flow_model.load_state_dict(checkpoint['flow_model'])
+        epoch = checkpoint["epoch"]
+        self.rgb_model.load_state_dict(checkpoint["rgb_model"])
+        self.flow_model.load_state_dict(checkpoint["flow_model"])
         attention_model.load_state_dict(checkpoint[model_key])
-        opt_sd = checkpoint['optimizer']
-        lr_scheduler_sd = checkpoint.get('lr_scheduler', None)
+        opt_sd = checkpoint["optimizer"]
+        lr_scheduler_sd = checkpoint.get("lr_scheduler", None)
         # if 'lr_scheduler' in checkpoint:
         #     assert self.lr_scheduler is not None, "No LR schedulers initialized"
         #     self.lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
 
         return epoch, opt_sd, lr_scheduler_sd
-
 
     # def _train(self, loader, key):
     #     """Run the training loop for one epoch.
@@ -419,7 +413,7 @@ class EpicActionRecognitionModule(object):
         flow_images = flow[0]
         labels = metadata[key]
         text = metadata["narration"]
-        
+
         rgb_feats = self.rgb_model(rgb_images.to(self.device))
         flow_feats = self.flow_model(flow_images.to(self.device))
         narration_feats = self.narration_model(text)
@@ -445,7 +439,7 @@ class EpicActionRecognitionModule(object):
         loss.backward()
         clip_grad_norm_(model.parameters(), self.cfg.trainer.gradient_clip_val)
         self.opt.step()
-        
+
     def compute_accuracy(self, preds, labels):
         with torch.no_grad():
             preds = torch.argmax(preds, dim=1)
@@ -505,125 +499,125 @@ class EpicActionRecognitionModule(object):
 
     # baseline paper used num_epochs = 3e6
 
-    def run_training_loop(self, datamodule, num_epochs: int = 50, model_save_path=None):
-        """Run the main training loop for the model.
-        May need to run separate loops for train/test.
+    # def run_training_loop(self, datamodule, num_epochs: int = 50, model_save_path=None):
+    #     """Run the main training loop for the model.
+    #     May need to run separate loops for train/test.
 
-        Args:
-            num_epochs (int, optional): number of training epochs.
-                Defaults to 500.
-            model_save_path (str, optional): path to save model during
-                and after training. Defaults to self.save_path
-        """
-       
-        train_loader = datamodule.train_dataloader()
-        val_loader = datamodule.val_dataloader()
-        self.load_models_to_device(verb=True)
-        verb_model = AttentionModel(self.verb_map).to(self.device)
-        verb_save_path = model_save_path / "verbs"
-        noun_save_path = model_save_path / "nouns"
-        verb_save_path.mkdir(parents=True, exist_ok=True)
-        noun_save_path.mkdir(parents=True, exist_ok=True)
-        LOG.info("Created snapshot paths for verbs and nouns")
-        log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
-        steps_per_run = len(train_loader)
-        self.opt = self.get_optimizer(verb_model)
-        LOG.info("---------------- ### PHASE 1: TRAINING VERBS ### ----------------")
-        for epoch in tqdm(range(num_epochs), desc="training loop(verb)", position=0):
-            train_loss_verb, train_acc_verb = self._train(train_loader, "verb_class")
-            self.train_loss_history.append(train_loss_verb)
-            self.train_accuracy_history.append(train_acc_verb)
+    #     Args:
+    #         num_epochs (int, optional): number of training epochs.
+    #             Defaults to 500.
+    #         model_save_path (str, optional): path to save model during
+    #             and after training. Defaults to self.save_path
+    #     """
 
-            if (epoch + 1) % log_every_n_steps == 0:
-                val_loss_verb, val_acc_verb = self._validate(val_loader, "verb_class")
-                self.validation_loss_history.append(val_loss_verb)
-                self.validation_accuracy_history.append(val_acc_verb)
-                LOG.info(
-                    f"Epoch:{epoch + 1}"
-                    + f" Train Loss: {train_loss_verb}"
-                    + f" Val Loss: {val_loss_verb}"
-                    + f" Train Accuracy: {train_acc_verb:4f}"
-                    + f" Validation Accuracy: {val_acc_verb:.4f}"
-                )
-                writer.add_scalars(
-                    "loss",
-                    {"train loss": train_loss_verb, "val loss": val_loss_verb},
-                    steps_per_run * (epoch + 1),
-                )
-                writer.add_scalars(
-                    "accuracy",
-                    {"train accuracy": train_acc_verb, "val accuracy": val_acc_verb},
-                    steps_per_run * (epoch + 1),
-                )
-                self.save_model(verb_model, epoch + 1, verb_save_path)
-                LOG.info(
-                    f"Saved model state for epoch {epoch + 1} at {verb_save_path}/checkpoint_{epoch + 1}.pt"
-                )
-                if self.early_stopping(val_loss_verb, val_acc_verb):
-                    break
+    #     train_loader = datamodule.train_dataloader()
+    #     val_loader = datamodule.val_dataloader()
+    #     self.load_models_to_device(verb=True)
+    #     verb_model = AttentionModel(self.verb_map).to(self.device)
+    #     verb_save_path = model_save_path / "verbs"
+    #     noun_save_path = model_save_path / "nouns"
+    #     verb_save_path.mkdir(parents=True, exist_ok=True)
+    #     noun_save_path.mkdir(parents=True, exist_ok=True)
+    #     LOG.info("Created snapshot paths for verbs and nouns")
+    #     log_every_n_steps = self.cfg.trainer.get("log_every_n_steps", 1)
+    #     steps_per_run = len(train_loader)
+    #     self.opt = self.get_optimizer(verb_model)
+    #     LOG.info("---------------- ### PHASE 1: TRAINING VERBS ### ----------------")
+    #     for epoch in tqdm(range(num_epochs), desc="training loop(verb)", position=0):
+    #         train_loss_verb, train_acc_verb = self._train(train_loader, "verb_class")
+    #         self.train_loss_history.append(train_loss_verb)
+    #         self.train_accuracy_history.append(train_acc_verb)
 
-        # Write training stats for analysis
-        train_stats = {
-            "train_accuracy": self.train_accuracy_history,
-            "train_loss": self.train_loss_history,
-            "val_accuracy": self.validation_accuracy_history,
-            "val_loss": self.validation_loss_history,
-        }
-        fname = os.path.join(model_save_path, "train_stats_verbs.pkl")
-        write_pickle(train_stats, fname)
-        # self.save_model(num_epochs, verb_save_path)
-        LOG.info("Finished verb training")
+    #         if (epoch + 1) % log_every_n_steps == 0:
+    #             val_loss_verb, val_acc_verb = self._validate(val_loader, "verb_class")
+    #             self.validation_loss_history.append(val_loss_verb)
+    #             self.validation_accuracy_history.append(val_acc_verb)
+    #             LOG.info(
+    #                 f"Epoch:{epoch + 1}"
+    #                 + f" Train Loss: {train_loss_verb}"
+    #                 + f" Val Loss: {val_loss_verb}"
+    #                 + f" Train Accuracy: {train_acc_verb:4f}"
+    #                 + f" Validation Accuracy: {val_acc_verb:.4f}"
+    #             )
+    #             writer.add_scalars(
+    #                 "loss",
+    #                 {"train loss": train_loss_verb, "val loss": val_loss_verb},
+    #                 steps_per_run * (epoch + 1),
+    #             )
+    #             writer.add_scalars(
+    #                 "accuracy",
+    #                 {"train accuracy": train_acc_verb, "val accuracy": val_acc_verb},
+    #                 steps_per_run * (epoch + 1),
+    #             )
+    #             self.save_model(verb_model, epoch + 1, verb_save_path)
+    #             LOG.info(
+    #                 f"Saved model state for epoch {epoch + 1} at {verb_save_path}/checkpoint_{epoch + 1}.pt"
+    #             )
+    #             if self.early_stopping(val_loss_verb, val_acc_verb):
+    #                 break
 
-        torch.cuda.empty_cache()
-        self.train_loss_history = []
-        self.train_accuracy_history = []
-        self.validation_loss_history = []
-        self.validation_accuracy_history = []
-        self.freeze_feature_extractors()  # We want noun model to use the same params for feature extraction as the verbs
-        self.load_models_to_device(verb=False)
-        noun_model = AttentionModel(self.noun_map).to(self.device)
-        self.opt = self.get_optimizer(noun_model)
-        LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
-        for epoch in tqdm(range(num_epochs)):
-            train_loss_noun, train_acc_noun = self._train(train_loader, "noun_class")
-            self.train_loss_history.append(train_loss_noun)
-            self.train_accuracy_history.append(train_acc_noun)
+    #     # Write training stats for analysis
+    #     train_stats = {
+    #         "train_accuracy": self.train_accuracy_history,
+    #         "train_loss": self.train_loss_history,
+    #         "val_accuracy": self.validation_accuracy_history,
+    #         "val_loss": self.validation_loss_history,
+    #     }
+    #     fname = os.path.join(model_save_path, "train_stats_verbs.pkl")
+    #     write_pickle(train_stats, fname)
+    #     # self.save_model(num_epochs, verb_save_path)
+    #     LOG.info("Finished verb training")
 
-            if (epoch + 1) % log_every_n_steps == 0:
-                val_loss_noun, val_acc_noun = self._validate(val_loader, "noun_class")
-                self.validation_loss_history.append(val_loss_noun)
-                self.validation_accuracy_history.append(val_acc_noun)
-                LOG.info(
-                    f"Epoch:{epoch + 1}"
-                    + f" Train Loss: {train_loss_noun}"
-                    + f" Val Loss: {val_loss_noun}"
-                    + f" Train Accuracy: {train_acc_noun:4f}"
-                    + f" Validation Accuracy: {val_acc_noun:.4f}"
-                )
-                writer.add_scalars(
-                    "loss",
-                    {"train loss": train_loss_noun, "val loss": val_loss_noun},
-                    steps_per_run * (epoch + 1),
-                )
-                writer.add_scalars(
-                    "accuracy",
-                    {"train accuracy": train_acc_noun, "val accuracy": val_acc_noun},
-                    steps_per_run * (epoch + 1),
-                )
-                self.save_model(noun_model, epoch + 1, noun_save_path)
-                if self.early_stopping(val_loss_noun, val_acc_noun):
-                    break
+    #     torch.cuda.empty_cache()
+    #     self.train_loss_history = []
+    #     self.train_accuracy_history = []
+    #     self.validation_loss_history = []
+    #     self.validation_accuracy_history = []
+    #     self.freeze_feature_extractors()  # We want noun model to use the same params for feature extraction as the verbs
+    #     self.load_models_to_device(verb=False)
+    #     noun_model = AttentionModel(self.noun_map).to(self.device)
+    #     self.opt = self.get_optimizer(noun_model)
+    #     LOG.info("---------------- ### PHASE 2: TRAINING NOUNS ### ----------------")
+    #     for epoch in tqdm(range(num_epochs)):
+    #         train_loss_noun, train_acc_noun = self._train(train_loader, "noun_class")
+    #         self.train_loss_history.append(train_loss_noun)
+    #         self.train_accuracy_history.append(train_acc_noun)
 
-        train_stats = {
-            "train_accuracy": self.train_accuracy_history,
-            "train_loss": self.train_loss_history,
-            "val_accuracy": self.validation_accuracy_history,
-            "val_loss": self.validation_loss_history,
-        }
-        fname = os.path.join(model_save_path, "train_stats_nouns.pkl")
-        write_pickle(train_stats, fname)
-        # self.save_model(num_epochs, noun_save_path)
-        LOG.info("Finished noun training")
+    #         if (epoch + 1) % log_every_n_steps == 0:
+    #             val_loss_noun, val_acc_noun = self._validate(val_loader, "noun_class")
+    #             self.validation_loss_history.append(val_loss_noun)
+    #             self.validation_accuracy_history.append(val_acc_noun)
+    #             LOG.info(
+    #                 f"Epoch:{epoch + 1}"
+    #                 + f" Train Loss: {train_loss_noun}"
+    #                 + f" Val Loss: {val_loss_noun}"
+    #                 + f" Train Accuracy: {train_acc_noun:4f}"
+    #                 + f" Validation Accuracy: {val_acc_noun:.4f}"
+    #             )
+    #             writer.add_scalars(
+    #                 "loss",
+    #                 {"train loss": train_loss_noun, "val loss": val_loss_noun},
+    #                 steps_per_run * (epoch + 1),
+    #             )
+    #             writer.add_scalars(
+    #                 "accuracy",
+    #                 {"train accuracy": train_acc_noun, "val accuracy": val_acc_noun},
+    #                 steps_per_run * (epoch + 1),
+    #             )
+    #             self.save_model(noun_model, epoch + 1, noun_save_path)
+    #             if self.early_stopping(val_loss_noun, val_acc_noun):
+    #                 break
+
+    #     train_stats = {
+    #         "train_accuracy": self.train_accuracy_history,
+    #         "train_loss": self.train_loss_history,
+    #         "val_accuracy": self.validation_accuracy_history,
+    #         "val_loss": self.validation_loss_history,
+    #     }
+    #     fname = os.path.join(model_save_path, "train_stats_nouns.pkl")
+    #     write_pickle(train_stats, fname)
+    #     # self.save_model(num_epochs, noun_save_path)
+    #     LOG.info("Finished noun training")
 
     def freeze_feature_extractors(self):
         for model in [self.rgb_model, self.flow_model, self.narration_model]:
@@ -638,17 +632,33 @@ class DDPRecognitionModule(EpicActionRecognitionModule):
     def __init__(self, cfg: DictConfig):
         super().__init__(cfg)
 
-
-    def save_model(self, ddp_model, model_val_acc, best_val_acc, epoch, path, model_key="attention_model") -> None:
+    def save_model(
+        self,
+        ddp_model,
+        model_val_acc,
+        best_val_acc,
+        epoch,
+        path,
+        model_key="attention_model",
+    ) -> None:
         assert self.rgb_model is not None, "RGB model has not been initialized"
         assert self.flow_model is not None, "FLow model has not been initialized"
-        assert model_key in ["attention_model", "ddp_model"], \
-            "Incorrect model_key, must be one of 'attention_model' or 'ddp_model'"
-        
+        assert model_key in [
+            "attention_model",
+            "ddp_model",
+        ], "Incorrect model_key, must be one of 'attention_model' or 'ddp_model'"
+
         if model_key == "attention_model":
-            return super().save_model(ddp_model, model_val_acc, best_val_acc, epoch, path, model_key="ddp_model")
+            return super().save_model(
+                ddp_model,
+                model_val_acc,
+                best_val_acc,
+                epoch,
+                path,
+                model_key="ddp_model",
+            )
         #! Should be deprecated
-        else:        
+        else:
             if model_val_acc > best_val_acc:
                 save_path = os.path.join(path, f"checkpoint_{epoch}.pt")
                 torch.save(

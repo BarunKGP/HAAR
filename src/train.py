@@ -15,7 +15,14 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from models.models import AttentionModel
 from systems.recognition_module import EpicActionRecognitionModule, DDPRecognitionModule
 from systems.data_module import EpicActionRecognitionDataModule
-from utils import ActionMeter, get_device, get_loggers, log_print, write_pickle, close_logger
+from utils import (
+    ActionMeter,
+    get_device,
+    get_loggers,
+    log_print,
+    write_pickle,
+    close_logger,
+)
 
 
 LOG = get_loggers(__name__, filename="data/pilot-01/logs/train_temp.log")
@@ -57,7 +64,7 @@ def run_ddp(system, datamodule, port, verb_save_path, noun_save_path, ddp_fn):
     batch_size = int(system.cfg.learning.batch_size)
     num_epochs = system.cfg.trainer.max_epochs
     nprocs = system.cfg.learning.ddp.nprocs
-    if nprocs == 'gpu':
+    if nprocs == "gpu":
         nprocs = world_size
     # print(f'mp.spawn args - world_size={world_size}, nprocs={nprocs}')
     mp.spawn(
@@ -81,7 +88,6 @@ def ddp_setup(rank, world_size, master_port, backend):
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(master_port)
     init_process_group(backend, rank=rank, world_size=world_size)
-
 
 
 def train(
@@ -108,23 +114,27 @@ def train(
     ) = ([], [], [], [])
 
     verb_snapshot_path = noun_snapshot_path = None
-    if 'load_snapshot' in system.cfg.trainer:
-        verb_snapshot_path=system.cfg.trainer.load_snapshot.get('verb_snapshot_path', None)
+    if "load_snapshot" in system.cfg.trainer:
+        verb_snapshot_path = system.cfg.trainer.load_snapshot.get(
+            "verb_snapshot_path", None
+        )
         if verb_snapshot_path is not None:
             verb_snapshot_path = Path(verb_snapshot_path)
-        noun_snapshot_path=system.cfg.trainer.load_snapshot.get('noun_snapshot_path', None)
+        noun_snapshot_path = system.cfg.trainer.load_snapshot.get(
+            "noun_snapshot_path", None
+        )
         if noun_snapshot_path is not None:
             noun_snapshot_path = Path(noun_snapshot_path)
 
     def train_one_epoch(model, epoch_index):
-        running_loss = avg_loss = avg_acc = 0.
+        running_loss = avg_loss = avg_acc = 0.0
         # train_loss_meter = ActionMeter("train loss")
         train_acc_meter = ActionMeter("train accuracy")
-        for i, batch in  tqdm(
-            enumerate(train_loader), 
-            desc=f"train_loader epoch {epoch_index + 1}/{num_epochs}", 
-            total=steps_per_run, 
-            leave=False
+        for i, batch in tqdm(
+            enumerate(train_loader),
+            desc=f"train_loader epoch {epoch_index + 1}/{num_epochs}",
+            total=steps_per_run,
+            leave=False,
         ):
             batch_acc, batch_loss = system._step(batch, model, key)
             avg_loss += batch_loss.item()
@@ -136,36 +146,36 @@ def train(
             if (i + 1) % log_every_n_steps == 0:
                 running_loss += avg_loss
                 avg_loss = avg_loss / log_every_n_steps
-                avg_acc = avg_acc / log_every_n_steps # train_acc_meter.get_average_values()
+                avg_acc = (
+                    avg_acc / log_every_n_steps
+                )  # train_acc_meter.get_average_values()
                 # log_print(
-                #     LOG, 
+                #     LOG,
                 #     f'batch: {i + 1} \t loss: {avg_loss} \t accuracy: {avg_acc}'
                 # )
                 tb_steps = epoch_index * steps_per_run + i + 1
                 writer.add_scalars(
-                    'Train metrics',
-                    {
-                        "train loss": avg_loss,
-                        "train accuracy": avg_acc
-                    },
-                    tb_steps
+                    "Train metrics",
+                    {"train loss": avg_loss, "train accuracy": avg_acc},
+                    tb_steps,
                 )
                 # train_loss_meter.reset()
                 # train_acc_meter.reset()
                 avg_loss = avg_acc = 0.0
-        
+
         return running_loss / steps_per_run, train_acc_meter.get_average_values()
 
-
-    def train_loop(model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0):
-        best_val_acc = 0.
-        log_print(LOG, f'len(train_loader) = {len(train_loader)} = {steps_per_run}')
+    def train_loop(
+        model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0
+    ):
+        best_val_acc = 0.0
+        log_print(LOG, f"len(train_loader) = {len(train_loader)} = {steps_per_run}")
         for epoch in tqdm(range(epoch_start, num_epochs), desc=tqdm_desc, position=0):
             model.train(True)
             train_loss, train_acc = train_one_epoch(model, epoch)
             train_loss_history.append(train_loss)
             train_accuracy_history.append(train_acc)
-            
+
             # Validation
             model.eval()
             system.rgb_model.eval()
@@ -175,11 +185,11 @@ def train(
             running_vloss = 0.0
             with torch.no_grad():
                 for batch in tqdm(
-                    val_loader, 
-                    desc=f"val_loader epoch {epoch+1}/{num_epochs}", 
-                    total=len(val_loader), 
-                    leave=False
-                ): 
+                    val_loader,
+                    desc=f"val_loader epoch {epoch+1}/{num_epochs}",
+                    total=len(val_loader),
+                    leave=False,
+                ):
                     batch_acc, batch_loss = system._step(batch, model, key)
                     val_acc_meter.update(batch_acc, val_batch_size)
                     running_vloss += batch_loss.item()
@@ -204,20 +214,19 @@ def train(
             writer.add_scalars(
                 tqdm_desc + ": Loss",
                 {
-                    "train loss": train_loss, 
+                    "train loss": train_loss,
                     "val loss": val_loss,
                 },
                 steps_per_run * (epoch + 1),
             )
             writer.add_scalars(
                 tqdm_desc + ": Accuracy",
-                {
-                    "train accuracy": train_acc, 
-                    "val accuracy": val_acc
-                },
+                {"train accuracy": train_acc, "val accuracy": val_acc},
                 steps_per_run * (epoch + 1),
             )
-            system.save_model(model, val_acc, best_val_acc, epoch + 1, snapshot_save_path)
+            system.save_model(
+                model, val_acc, best_val_acc, epoch + 1, snapshot_save_path
+            )
             LOG.info(
                 f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
             )
@@ -248,8 +257,12 @@ def train(
         opt_sd = lr_scheduler_sd = None
         epoch_start = 0
         if verb_snapshot_path is not None:
-            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(verb_snapshot_path, device, verb_model, model_key='attention_model')
-            LOG.info(f"Loaded state dict for models from {verb_snapshot_path}, starting at epoch {epoch_start}")
+            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(
+                verb_snapshot_path, device, verb_model, model_key="attention_model"
+            )
+            LOG.info(
+                f"Loaded state dict for models from {verb_snapshot_path}, starting at epoch {epoch_start}"
+            )
         key = "verb_class"
         system.opt = system.get_optimizer(verb_model)
         if opt_sd is not None:
@@ -264,7 +277,9 @@ def train(
             "---------------- ### PHASE 1: TRAINING VERBS ### ----------------",
             "info",
         )
-        train_loop(verb_model, verb_save_path, key, "training loop (verbs)", epoch_start)
+        train_loop(
+            verb_model, verb_save_path, key, "training loop (verbs)", epoch_start
+        )
         train_stats = {
             "train_accuracy": train_accuracy_history,
             "train_loss": train_loss_history,
@@ -287,7 +302,7 @@ def train(
             validation_accuracy_history,
         ) = ([], [], [], [])
 
-        if train_verb: 
+        if train_verb:
             system.freeze_feature_extractors()
         key = "noun_class"
         torch.cuda.empty_cache()
@@ -296,8 +311,12 @@ def train(
         noun_model = AttentionModel(system.noun_map).to(device)
         opt_sd = lr_scheduler_sd = None
         if noun_snapshot_path is not None:
-            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(noun_snapshot_path, device, noun_model, 'attention_model')
-            LOG.info(f"Loaded state dict for models from {noun_snapshot_path}, starting at epoch {epoch_start}")
+            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(
+                noun_snapshot_path, device, noun_model, "attention_model"
+            )
+            LOG.info(
+                f"Loaded state dict for models from {noun_snapshot_path}, starting at epoch {epoch_start}"
+            )
         system.opt = system.get_optimizer(noun_model)
         if opt_sd is not None:
             system.opt.load_state_dict(opt_sd)
@@ -310,7 +329,9 @@ def train(
             "---------------- ### PHASE 2: TRAINING NOUNS ### ----------------",
             "info",
         )
-        train_loop(noun_model, noun_save_path, key, "training loop (nouns)", epoch_start)
+        train_loop(
+            noun_model, noun_save_path, key, "training loop (nouns)", epoch_start
+        )
         train_stats = {
             "train_accuracy": train_accuracy_history,
             "train_loss": train_loss_history,
@@ -322,6 +343,7 @@ def train(
         write_pickle(train_stats, fname)
         LOG.info("Finished noun training")
 
+
 def ddp_train(
     rank,
     world_size,
@@ -331,9 +353,11 @@ def ddp_train(
     verb_save_path,
     noun_save_path,
     batch_size,
-    num_epochs
+    num_epochs,
 ):
-    ddp_setup(rank, world_size, free_port, system.cfg.learning.ddp.backend)  # should be taken from cfg
+    ddp_setup(
+        rank, world_size, free_port, system.cfg.learning.ddp.backend
+    )  # should be taken from cfg
     global_rank = dist.get_rank()
     system.device = torch.device(rank)
     train_loader = datamodule.train_dataloader(rank)
@@ -349,9 +373,8 @@ def ddp_train(
         validation_accuracy_history,
     ) = ([], [], [], [])
 
-
     def ddp_one_epoch(model, epoch_index):
-        ''' Trains DDP model for one epoch and logs loss and accuracy 
+        """Trains DDP model for one epoch and logs loss and accuracy
         to Tensorboard.
 
         Args:
@@ -361,8 +384,8 @@ def ddp_train(
         Returns:
             (avg_train_loss, avg_train_acc): Tuple containing average
             training loss and accuracy for that epoch
-        '''
-        running_loss = avg_loss = 0.
+        """
+        running_loss = avg_loss = avg_acc = 0.0
         acc_meter = ActionMeter("accuracy")
         for i, batch in enumerate(train_loader):
             batch_acc, batch_loss = system._step(batch, ddp_model, key)
@@ -374,31 +397,31 @@ def ddp_train(
             if (i + 1) % log_every_n_steps == 0:
                 running_loss += avg_loss
                 avg_loss = avg_loss / log_every_n_steps
-                avg_acc = avg_acc / log_every_n_steps # train_acc_meter.get_average_values()
+                avg_acc = (
+                    avg_acc / log_every_n_steps
+                )  # train_acc_meter.get_average_values()
                 tb_steps = epoch_index * steps_per_run + i + 1
                 writer.add_scalars(
-                    'Real-time training metrics',
-                    {
-                        "train loss": avg_loss,
-                        "train accuracy": avg_acc
-                    },
-                    tb_steps
+                    "Real-time training metrics",
+                    {"train loss": avg_loss, "train accuracy": avg_acc},
+                    tb_steps,
                 )
                 avg_loss = avg_acc = 0.0
-        
-        return running_loss/steps_per_run, acc_meter.get_average_values()
 
+        return running_loss / steps_per_run, acc_meter.get_average_values()
 
-    def ddp_loop(ddp_model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0):
-        best_val_acc = 0.
+    def ddp_loop(
+        ddp_model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0
+    ):
+        best_val_acc = 0.0
         for epoch in tqdm(
-            range(epoch_start, num_epochs), 
-            desc=tqdm_desc + f'[Epoch {epoch + 1}/{num_epochs}]', 
-            position=0
+            range(epoch_start, num_epochs),
+            desc=tqdm_desc,
+            position=0,
         ):
             train_loader.sampler.set_epoch(epoch)
             train_loss, train_acc = ddp_one_epoch(ddp_model, epoch)
-            train_loss_history.append(train_loss) 
+            train_loss_history.append(train_loss)
             train_accuracy_history.append(train_acc)
             writer.add_scalars(
                 "Training metrics (each epoch)",
@@ -416,14 +439,14 @@ def ddp_train(
             val_loss_meter = ActionMeter("val loss")
             val_acc_meter = ActionMeter("val accuracy")
             with torch.no_grad():
-                running_vloss = 0.
+                running_vloss = 0.0
                 for batch in val_loader:
-                # for batch in tqdm(
-                #     val_loader, 
-                #     desc=f"val_loader epoch: {epoch+1}", 
-                #     total=len(val_loader), 
-                #     leave=False
-                # ): 
+                    # for batch in tqdm(
+                    #     val_loader,
+                    #     desc=f"val_loader epoch: {epoch+1}",
+                    #     total=len(val_loader),
+                    #     leave=False
+                    # ):
                     batch_acc, batch_loss = system._step(batch, ddp_model, key)
                     val_acc_meter.update(batch_acc, val_batch_size)
                     running_vloss += batch_loss.item()
@@ -445,7 +468,9 @@ def ddp_train(
                     + f" Train Accuracy/Val Accuracy: {train_acc:4f}/{val_acc:.4f}",
                     "info",
                 )
-                system.save_model(ddp_model, val_acc, best_val_acc, epoch + 1, snapshot_save_path)
+                system.save_model(
+                    ddp_model, val_acc, best_val_acc, epoch + 1, snapshot_save_path
+                )
                 LOG.info(
                     f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
                 )
@@ -453,17 +478,14 @@ def ddp_train(
             writer.add_scalars(
                 tqdm_desc + ": Loss",
                 {
-                    "train loss": train_loss, 
+                    "train loss": train_loss,
                     "val loss": val_loss,
                 },
                 steps_per_run * (epoch + 1),
             )
             writer.add_scalars(
                 tqdm_desc + ": Accuracy",
-                {
-                    "train accuracy": train_acc, 
-                    "val accuracy": val_acc
-                },
+                {"train accuracy": train_acc, "val accuracy": val_acc},
                 steps_per_run * (epoch + 1),
             )
             if system.early_stopping(val_loss, val_acc):
@@ -472,13 +494,16 @@ def ddp_train(
             system.rgb_model.train()
             system.flow_model.train()
 
-
     verb_snapshot_path = noun_snapshot_path = None
-    if 'load_snapshot' in system.cfg.trainer:
-        verb_snapshot_path=system.cfg.trainer.load_snapshot.get('verb_snapshot_path', None)
+    if "load_snapshot" in system.cfg.trainer:
+        verb_snapshot_path = system.cfg.trainer.load_snapshot.get(
+            "verb_snapshot_path", None
+        )
         if verb_snapshot_path is not None:
             verb_snapshot_path = Path(verb_snapshot_path)
-        noun_snapshot_path=system.cfg.trainer.load_snapshot.get('noun_snapshot_path', None)
+        noun_snapshot_path = system.cfg.trainer.load_snapshot.get(
+            "noun_snapshot_path", None
+        )
         if noun_snapshot_path is not None:
             noun_snapshot_path = Path(noun_snapshot_path)
     train_verb = system.cfg.trainer.get("verb", True)
@@ -502,14 +527,23 @@ def ddp_train(
         opt_sd = lr_scheduler_sd = None
         epoch_start = 0
         if verb_snapshot_path is not None:
-            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(verb_snapshot_path, torch.device(rank), verb_model, model_key='ddp_model')
-            LOG.info(f"Loaded state dict for models from {verb_snapshot_path}, starting at epoch {epoch_start}")
+            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(
+                verb_snapshot_path,
+                torch.device(rank),
+                verb_model,
+                model_key="ddp_model",
+            )
+            LOG.info(
+                f"Loaded state dict for models from {verb_snapshot_path}, starting at epoch {epoch_start}"
+            )
         ddp_model = DDP(verb_model, device_ids=[rank])
         key = "verb_class"
         system.opt = system.get_optimizer(ddp_model)
         if opt_sd is not None:
             system.opt.load_state_dict(opt_sd)
-            LOG.info(f"Loaded state dict for optimizer from {verb_snapshot_path}, starting at epoch {epoch_start}")
+            LOG.info(
+                f"Loaded state dict for optimizer from {verb_snapshot_path}, starting at epoch {epoch_start}"
+            )
         if global_rank == 0:
             log_print(
                 LOG,
@@ -541,7 +575,7 @@ def ddp_train(
             validation_accuracy_history,
         ) = ([], [], [], [])
 
-        if train_verb: 
+        if train_verb:
             system.freeze_feature_extractors()
         key = "noun_class"
         torch.cuda.empty_cache()
@@ -550,13 +584,19 @@ def ddp_train(
         noun_model = AttentionModel(system.noun_map).to(rank)
         opt_sd = lr_scheduler_sd = None
         if noun_snapshot_path is not None:
-            epoch_start, opt_sd = system.load_snapshot(noun_snapshot_path, torch.device(rank), noun_model, 'ddp_model')
-            LOG.info(f"Loaded state dict for models from {noun_snapshot_path}, starting at epoch {epoch_start}")
+            epoch_start, opt_sd = system.load_snapshot(
+                noun_snapshot_path, torch.device(rank), noun_model, "ddp_model"
+            )
+            LOG.info(
+                f"Loaded state dict for models from {noun_snapshot_path}, starting at epoch {epoch_start}"
+            )
         ddp_model = DDP(noun_model, device_ids=[rank])
         system.opt = system.get_optimizer(ddp_model)
         if opt_sd is not None:
             system.opt.load_state_dict(opt_sd)
-            LOG.info(f"Loaded state dict for optimizer from {noun_snapshot_path}, starting at epoch {epoch_start}")
+            LOG.info(
+                f"Loaded state dict for optimizer from {noun_snapshot_path}, starting at epoch {epoch_start}"
+            )
         if rank == 0:
             log_print(
                 LOG,
@@ -577,12 +617,13 @@ def ddp_train(
             write_pickle(train_stats, fname)
             LOG.info("Finished noun training")
 
+    writer.close()
     ddp_shutdown()
 
 
 def ddp_shutdown():
     destroy_process_group()
-    writer.close()
+    # writer.close()
 
 
 @hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
@@ -591,16 +632,18 @@ def main(cfg: DictConfig):
     data_module = EpicActionRecognitionDataModule(cfg)
     verb_path, noun_path = create_snapshot_paths(Path(cfg.model.save_path))
     tb_writer = SummaryWriter(cfg.trainer.tb_runs)
-    print(f'pin memory: {cfg.data.pin_memory} <{type(cfg.data.pin_memory)}>')
+    print(f"pin memory: {cfg.data.pin_memory} <{type(cfg.data.pin_memory)}>")
     if cfg.learning.get("ddp", False):
         change_port = "Y"
-        if cfg.learning.ddp.get('master_port', None) is not None:
-            change_port = input(f"Would you like to change the DDP master port from {cfg.learning.ddp.master_port} (Y/N)? ")
-        if change_port and change_port.upper() == 'Y':
+        if cfg.learning.ddp.get("master_port", None) is not None:
+            change_port = input(
+                f"Would you like to change the DDP master port from {cfg.learning.ddp.master_port} (Y/N)? "
+            )
+        if change_port and change_port.upper() == "Y":
             new_port = input("Please enter new port ")
             cfg.learning.ddp.master_port = new_port
         system = DDPRecognitionModule(cfg)
-        set_env_ddp(cfg.learning.ddp.get('nccl_p2p_disable', '1'))
+        set_env_ddp(cfg.learning.ddp.get("nccl_p2p_disable", "1"))
         run_ddp(
             system,
             data_module,
@@ -613,9 +656,6 @@ def main(cfg: DictConfig):
         system = EpicActionRecognitionModule(cfg)
         device = get_device()
         train(device, data_module, system, verb_path, noun_path, tb_writer)
-        system.run_training_loop(
-            data_module, cfg.trainer.max_epochs, Path(cfg.model.save_path)
-        )
     LOG.info("Training completed!")
     close_logger(LOG)
     sys.exit()  # required to prevent CPU lock (soft bug)
