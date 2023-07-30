@@ -1,0 +1,98 @@
+seed: 42
+
+data:
+  frame_count: 32
+  _root_gulp_dir: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/gulp
+  worker_count: 0 # needs tuning
+  pin_memory: True
+  verb_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_verb_classes.csv
+  noun_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_noun_classes_v2.csv
+  rgb:
+    segment_length: 1  # Number of (u, v) pairs in each segment
+    train_gulp_dir: ${data._root_gulp_dir}/rgb_train
+    val_gulp_dir: ${data._root_gulp_dir}/rgb_validation
+    test_gulp_dir: ${data._root_gulp_dir}/rgb_test
+    preprocessing:
+      bgr: no         # Whether network inputs should be BGR rather than RGB.
+      rescale: yes    # Whether to rescale input from [0, 255] to [0, 1].
+      input_size: 224
+      scale_size: 256
+      mean: [0.485, 0.456, 0.406]
+      std: [0.485, 0.456, 0.406]
+    train_augmentation:
+      multiscale_crop_scales: [1, 0.875, 0.75, 0.66]
+    test_augmentation:
+      rescale_size: 256
+  flow:
+    segment_length: 5  
+    train_gulp_dir: ${data._root_gulp_dir}/flow_train
+    val_gulp_dir: ${data._root_gulp_dir}/flow_validation
+    test_gulp_dir: ${data._root_gulp_dir}/flow_test
+    preprocessing:
+      rescale: yes
+      input_size: 224
+      scale_size: 256
+      mean: [0.5]
+      std: [0.226]  # Mean of imagenet std
+    train_augmentation:
+      multiscale_crop_scales: [1, 0.875, 0.75]
+    test_augmentation:
+      rescale_size: 256
+
+model:
+  type: TSM
+  backbone: resnet50
+  pretrained: None
+  weights: 
+    rgb: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_rgb.ckpt
+    flow: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_flow.ckpt
+  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/train_run_zatopek/temp
+  dropout: 0.7
+  partial_bn: yes
+  shift_div: 8
+  non_local: False
+  temporal_pool: False
+  num_class: 1024
+  narration_model:
+    pretrained: True
+
+learning:
+  batch_size: 6
+  val_batch_size: 32
+  optimizer:
+    type: Adam
+    args:
+      weight_decay: 5e-4
+    # momentum: 0.9
+    # weight_decay: 5e-4
+  ddp: 
+    nprocs: 3
+    backend: nccl
+    master_port: 40845
+    nccl_p2p_disable: 1
+  lr: 1e-4
+  lr_scheduler:
+    type: ReduceLROnPlateau
+    args:
+      mode: max
+      factor: 0.5
+      patience: 10
+      min_lr: 0.0001
+  
+
+trainer:
+  verb: True
+  noun: True
+  # gradient_clip_val: 20
+  max_epochs: 100
+  early_stopping:
+    criterion: accuracy
+    threshold: 0.8
+  gpus: 3
+  # Write metrics to tensorboard logs every X iterations
+  tb_runs: ???
+  log_every_n_steps: 10
+
+defaults:
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
