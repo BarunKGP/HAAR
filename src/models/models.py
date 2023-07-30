@@ -4,6 +4,7 @@ from constants import (
     MULTIMODAL_FEATURE_SIZE,
     SENTENCE_TRANSFORMER_MODEL,
     WORD_EMBEDDING_SIZE,
+    D_MODEL_ROOT
 )
 from sentence_transformers import SentenceTransformer
 from utils import get_device, vector_gather
@@ -22,7 +23,7 @@ class WordEmbeddings(nn.Module):
 
 # ATTENTION MODEL
 class AttentionModel(nn.Module):
-    def __init__(self, word_map):
+    def __init__(self, word_map, d_model_root=D_MODEL**0.5):
         super().__init__()
         self.cardinality = len(word_map)
         self.layer1 = nn.Sequential(
@@ -33,6 +34,13 @@ class AttentionModel(nn.Module):
         )
         self.linear_layer = nn.Linear(WORD_EMBEDDING_SIZE, self.cardinality, bias=True)
         self.softmax = nn.Softmax(dim=-1)
+        
+        #! Need to define MODEL_OUT, h
+        d_v = MODEL_OUT/h
+        self.linear_Q = nn.Linear(D_MODEL, d_v)
+        self.linear_K = nn.Linear(D_MODEL, d_v)
+        self.linear_V = nn.Linear(D_MODEL, d_v)
+        self.linear_out =  = nn.Linear(h*d_v, MODEL_OUT)
 
     def _predictions(self, frame_features, key, embeddings):
         """Takes the frame_features and returns the predictions
@@ -80,6 +88,21 @@ class AttentionModel(nn.Module):
 
     def _evaluate(self):
         pass
+
+    # def _sdpa(self, q, k, v):
+    #     """Scaled dot-product attention""" 
+    #     return torch.matmul(
+    #         self.softmax(
+    #             torch.matmul(q, k.T)/D_MODEL_ROOT 
+    #         ),
+    #         v
+    #     )
+
+    # def multihead_attention(self, q, k, v, h):
+    #     attention_heads = []
+    #     for head in range(h):
+    #         attention_heads.append(self._sdpa(q, k, v))
+
 
     def forward(self, x: torch.Tensor, label: int, embeddings):
         x = x[:, None, :].to(torch.float32)

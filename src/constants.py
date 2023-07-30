@@ -14,7 +14,11 @@ NUM_VERBS = 97
 NUM_NOUNS = 305  # nouns_classes_v2.csv
 SENTENCE_TRANSFORMER_MODEL = "all-MiniLM-L6-v2"
 
-DEFAULT_OPT="SGD"
+TRAIN_LOGNAME = "data/pilot-02/logs/train_temp_ddp.log"
+RECOG_LOGNAME = "data/pilot-02/logs/recog_temp_ddp.log"
+
+DEFAULT_OPT="Adam"
 DEFAULT_ARGS={
-    "momentum": 0.9
+    "weight_decay": 5e-4
 }
+D_MODEL_ROOT=512**0.5

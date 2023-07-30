@@ -4,14 +4,14 @@ import sys
 import os
 from pathlib import Path
 from functools import partial
+import pandas as pd
+from tqdm import tqdm
 
 # from contextlib import closing
 import socket
 import re
 from omegaconf import DictConfig, OmegaConf
-from systems.data_module import EpicActionRecognitionDataModule
 
-import pandas as pd
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -19,20 +19,20 @@ import torch.distributed as dist
 from torch.distributed import destroy_process_group, init_process_group
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR
 from torch.utils.tensorboard import SummaryWriter
-from constants import NUM_NOUNS, NUM_VERBS, DEFAULT_OPT, DEFAULT_ARGS
+
+from constants import NUM_NOUNS, NUM_VERBS, DEFAULT_OPT, DEFAULT_ARGS, RECOG_LOGNAME
 from models.tsm import TSM
 from models.models import AttentionModel, WordEmbeddings
-from tqdm import tqdm
 from frame_loader import FrameLoader
 from systems.data_module import EpicActionRecognitionDataModule
+from systems.samplers import DistributedEvalSampler
 from utils import ActionMeter, get_device, get_loggers, write_pickle, log_print
 
-LOG = get_loggers(name=__name__, filename="data/pilot-01/logs/recog_temp.log")
+LOG = get_loggers(name=__name__)
 writer = SummaryWriter("data/pilot-01/runs_2")
 
 
@@ -288,7 +288,7 @@ class EpicActionRecognitionModule(object):
         epoch,
         path,
         model_key="attention_model",
-    ) -> None:
+    ):
         """
         Saves the model state and optimizer state on the dict
 
@@ -318,6 +318,8 @@ class EpicActionRecognitionModule(object):
                 save_dict["lr_scheduler"] = self.lr_scheduler.state_dict()
 
             torch.save(save_dict, save_path)
+            return True
+        return False
 
     def load_snapshot(
         self, snapshot_path, device, attention_model, model_key="attention_model"
@@ -437,7 +439,8 @@ class EpicActionRecognitionModule(object):
         # model.zero_grad(set_to_none=True)
         self.opt.zero_grad(set_to_none=True)
         loss.backward()
-        clip_grad_norm_(model.parameters(), self.cfg.trainer.gradient_clip_val)
+        if self.cfg.trainer.get('gradient_clip_val', False):
+            clip_grad_norm_(model.parameters(), self.cfg.trainer.gradient_clip_val)
         self.opt.step()
 
     def compute_accuracy(self, preds, labels):

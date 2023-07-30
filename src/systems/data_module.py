@@ -21,6 +21,8 @@ from transforms import (
     ToTorchFormatTensor,
 )
 
+from systems.samplers import DistributedEvalSampler
+
 LOG = logging.getLogger(
     __name__
 )  # TODO: update to mp logging using file and stream handlers
@@ -142,7 +144,7 @@ class EpicActionRecognitionDataModule(object):
                 shuffle=False,
                 num_workers=self.cfg.data.worker_count,
                 pin_memory=self.cfg.data.pin_memory,
-                sampler=DistributedSampler(dataset),
+                sampler=DistributedSampler(dataset, shuffle=True),
             )
             # return prepare_distributed_sampler(
             #     dataset=dataset,
@@ -188,7 +190,7 @@ class EpicActionRecognitionDataModule(object):
                 shuffle=False,
                 num_workers=self.cfg.data.worker_count,
                 pin_memory=self.cfg.data.pin_memory,
-                sampler=DistributedSampler(dataset),
+                sampler=DistributedEvalSampler(dataset),
             )
             # assert rank is not None, "rank must be specified for DDP."
             # return prepare_distributed_sampler(
@@ -236,7 +238,7 @@ class EpicActionRecognitionDataModule(object):
                 shuffle=False,
                 num_workers=self.cfg.data.worker_count,
                 pin_memory=self.cfg.data.pin_memory,
-                sampler=DistributedSampler(dataset),
+                sampler=DistributedEvalSampler(dataset),
             )
             # assert rank is not None, "rank must be specified for DDP."
             # return prepare_distributed_sampler(

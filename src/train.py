@@ -23,9 +23,10 @@ from utils import (
     write_pickle,
     close_logger,
 )
+from constants import TRAIN_LOGNAME
 
 
-LOG = get_loggers(__name__, filename="data/pilot-01/logs/train_temp.log")
+LOG = get_loggers(__name__, filename=TRAIN_LOGNAME)
 # writer = SummaryWriter("data/pilot-01/runs_2")
 
 
@@ -44,6 +45,7 @@ def set_env_ddp(nccl_p2p_disable):
     if nccl_p2p_disable == "1":
         os.environ["NCCL_P2P_DISABLE"] = "1"
         print("Disabled P2P transfer for NCCL")
+    os.environ["TOKENIZERS_PARALLELISM"]="false"
     # debugging
     os.environ["NCCL_DEBUG"] = "INFO"
     os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
@@ -128,19 +130,21 @@ def train(
 
     def train_one_epoch(model, epoch_index):
         running_loss = avg_loss = avg_acc = 0.0
-        # train_loss_meter = ActionMeter("train loss")
+        train_loss_meter = ActionMeter("train loss")
         train_acc_meter = ActionMeter("train accuracy")
-        for i, batch in tqdm(
-            enumerate(train_loader),
-            desc=f"train_loader epoch {epoch_index + 1}/{num_epochs}",
-            total=steps_per_run,
-            leave=False,
+        for i, batch in enumerate(
+            tqdm(
+                train_loader, 
+                desc=f"train_loader epoch {epoch_index + 1}/{num_epochs}",
+                total=steps_per_run,
+                leave=False,
+            )
         ):
             batch_acc, batch_loss = system._step(batch, model, key)
             avg_loss += batch_loss.item()
             avg_acc += batch_acc
             train_acc_meter.update(batch_acc, batch_size)
-            # train_loss_meter.update(batch_loss.item(), batch_size)
+            train_loss_meter.update(batch_loss.item(), batch_size)
             system.backprop(model, batch_loss)
 
             if (i + 1) % log_every_n_steps == 0:
@@ -162,16 +166,20 @@ def train(
                 # train_loss_meter.reset()
                 # train_acc_meter.reset()
                 avg_loss = avg_acc = 0.0
-
+                break
+        LOG.info(f'train loss meter: {train_loss_meter.get_average_values()}')
         return running_loss / steps_per_run, train_acc_meter.get_average_values()
 
     def train_loop(
         model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0
     ):
         best_val_acc = 0.0
-        log_print(LOG, f"len(train_loader) = {len(train_loader)} = {steps_per_run}")
-        for epoch in tqdm(range(epoch_start, num_epochs), desc=tqdm_desc, position=0):
+        # log_print(LOG, f"len(train_loader) = {len(train_loader)} = {steps_per_run}")
+        # for epoch in tqdm(range(epoch_start, num_epochs), desc=tqdm_desc, position=0):
+        for epoch in range(epoch_start, num_epochs):
             model.train(True)
+            system.rgb_model.train(True)
+            system.flow_model.train(True)
             train_loss, train_acc = train_one_epoch(model, epoch)
             train_loss_history.append(train_loss)
             train_accuracy_history.append(train_acc)
@@ -198,7 +206,6 @@ def train(
             # val_loss = val_loss_meter.get_average_values()
             val_loss = running_vloss / len(val_loader)
             val_acc = val_acc_meter.get_average_values()
-            best_val_acc = max(best_val_acc, val_acc)
             validation_loss_history.append(val_loss)
             validation_accuracy_history.append(val_acc)
             if system.lr_scheduler is not None:
@@ -211,6 +218,7 @@ def train(
                 + f"\tTrain Accuracy/Val Accuracy: {train_acc:4f} / {val_acc:.4f}",
                 "info",
             )
+            log_print(LOG, f'Best val_acc = {best_val_acc}')
             writer.add_scalars(
                 tqdm_desc + ": Loss",
                 {
@@ -224,16 +232,18 @@ def train(
                 {"train accuracy": train_acc, "val accuracy": val_acc},
                 steps_per_run * (epoch + 1),
             )
-            system.save_model(
+            saved = system.save_model(
                 model, val_acc, best_val_acc, epoch + 1, snapshot_save_path
             )
-            LOG.info(
-                f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
-            )
+            if saved:
+                LOG.info(
+                    f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
+                )
 
             model.train()
             system.rgb_model.train()
             system.flow_model.train()
+            best_val_acc = max(best_val_acc, val_acc)
             if system.early_stopping(val_loss, val_acc):
                 break
 
@@ -423,14 +433,7 @@ def ddp_train(
             train_loss, train_acc = ddp_one_epoch(ddp_model, epoch)
             train_loss_history.append(train_loss)
             train_accuracy_history.append(train_acc)
-            writer.add_scalars(
-                "Training metrics (each epoch)",
-                {
-                    "train loss": train_loss,
-                    "train acc": train_acc,
-                },
-                steps_per_run * (epoch + 1),
-            )
+            
             # Validation
             val_loader.sampler.set_epoch(epoch)
             ddp_model.eval()
@@ -440,6 +443,7 @@ def ddp_train(
             val_acc_meter = ActionMeter("val accuracy")
             with torch.no_grad():
                 running_vloss = 0.0
+                num_items = 0
                 for batch in val_loader:
                     # for batch in tqdm(
                     #     val_loader,
@@ -448,13 +452,15 @@ def ddp_train(
                     #     leave=False
                     # ):
                     batch_acc, batch_loss = system._step(batch, ddp_model, key)
-                    val_acc_meter.update(batch_acc, val_batch_size)
+                    log_print(LOG, f"num of items = {len(batch[0][0])} on rank {rank}")
+                    num_items += len(batch[0][0])
+                    val_acc_meter.update(batch_acc, len(batch[0][0]))
                     running_vloss += batch_loss.item()
-                    # val_loss_meter.update(batch_loss.item(), val_batch_size)
+                    val_loss_meter.update(batch_loss.item(), len(batch[0][0]))
                 # val_loss = val_loss_meter.get_average_values()
+                print(f'val_loss on rank {rank} = {val_loss_meter.get_average_values()}')
                 val_loss = running_vloss / len(val_loader)
                 val_acc = val_acc_meter.get_average_values()
-                best_val_acc = max(best_val_acc, val_acc)
                 validation_loss_history.append(val_loss)
                 validation_accuracy_history.append(val_acc)
                 if system.lr_scheduler is not None:
@@ -468,12 +474,13 @@ def ddp_train(
                     + f" Train Accuracy/Val Accuracy: {train_acc:4f}/{val_acc:.4f}",
                     "info",
                 )
-                system.save_model(
+                saved = system.save_model(
                     ddp_model, val_acc, best_val_acc, epoch + 1, snapshot_save_path
                 )
-                LOG.info(
-                    f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
-                )
+                if saved:
+                    LOG.info(
+                        f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
+                    )
 
             writer.add_scalars(
                 tqdm_desc + ": Loss",
@@ -493,6 +500,7 @@ def ddp_train(
             ddp_model.train()
             system.rgb_model.train()
             system.flow_model.train()
+            best_val_acc = max(best_val_acc, val_acc)
 
     verb_snapshot_path = noun_snapshot_path = None
     if "load_snapshot" in system.cfg.trainer:
@@ -632,7 +640,6 @@ def main(cfg: DictConfig):
     data_module = EpicActionRecognitionDataModule(cfg)
     verb_path, noun_path = create_snapshot_paths(Path(cfg.model.save_path))
     tb_writer = SummaryWriter(cfg.trainer.tb_runs)
-    print(f"pin memory: {cfg.data.pin_memory} <{type(cfg.data.pin_memory)}>")
     if cfg.learning.get("ddp", False):
         change_port = "Y"
         if cfg.learning.ddp.get("master_port", None) is not None:
@@ -642,8 +649,10 @@ def main(cfg: DictConfig):
         if change_port and change_port.upper() == "Y":
             new_port = input("Please enter new port ")
             cfg.learning.ddp.master_port = new_port
+        
+        print(f"Proceeding with port {cfg.learning.ddp.master_port}")
         system = DDPRecognitionModule(cfg)
-        set_env_ddp(cfg.learning.ddp.get("nccl_p2p_disable", "1"))
+        set_env_ddp(str(cfg.learning.ddp.get("nccl_p2p_disable", 1)))
         run_ddp(
             system,
             data_module,
