@@ -30,7 +30,7 @@ from models.models import AttentionModel, WordEmbeddings
 from frame_loader import FrameLoader
 from systems.data_module import EpicActionRecognitionDataModule
 from systems.samplers import DistributedEvalSampler
-from utils import ActionMeter, get_device, get_loggers, write_pickle, log_print
+from utils import ActionMeter, get_device, get_loggers, write_pickle, log_print, strip_model_prefix
 
 LOG = get_loggers(name=__name__)
 writer = SummaryWriter("data/pilot-01/runs_2")
@@ -53,10 +53,6 @@ def get_word_map(file_loc):
         LOG.error(f"invalid file location: {file_loc}", exc_info=True)
         raise FileNotFoundError(f"Invalid file location: {file_loc}")
     return df[["id", "key"]]
-
-
-def strip_model_prefix(state_dict):
-    return {re.sub("^model.", "", k): v for k, v in state_dict.items()}
 
 
 def load_model(cfg: DictConfig, modality: str, output_dim: int = 0, device="cpu"):
@@ -83,7 +79,7 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0, device="cpu"
             raise ValueError(f"Unknown model type {cfg.model.type!r}")
 
         if cfg.model.get("weights", None) is not None:
-            if cfg.model.pretrained is not None:
+            if cfg.model.pretrained is not "None":
                 LOG.warning(
                     f"model.pretrained was set to {cfg.model.pretrained!r} but "
                     f"you also specified to load weights from {cfg.model.weights}."
@@ -106,9 +102,11 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0, device="cpu"
                 if len(unexpected) > 0:
                     LOG.warning(f"Unexpected keys in checkpoint: {unexpected}")
     elif modality == "narration":
-        if type(device) == int:
-            device = "cuda:" + str(device)
-        model = WordEmbeddings(device=device)
+        #* For HF
+        # if type(device) == int:
+        #     device = "cuda:" + str(device)
+        # model = WordEmbeddings(device=device)
+        model = WordEmbeddings()
         narr_cfg = cfg.model.get("narration_model", None)
         if narr_cfg and narr_cfg.get("pretrained", False):
             for param in model.parameters():
@@ -141,10 +139,12 @@ class EpicActionRecognitionModule(object):
         self.lr_scheduler = None
 
         self.ddp = self.cfg.learning.get("ddp", False)
-        if self.ddp:
-            self.device = None
-        else:
-            self.device = device if device is not None else get_device()
+        #* For HF
+        # if self.ddp:
+        #     self.device = None
+        # else:
+        #     self.device = device if device is not None else get_device()
+        self.device = device
 
         self.train_loss_history = []
         self.validation_loss_history = []
@@ -415,7 +415,6 @@ class EpicActionRecognitionModule(object):
         flow_images = flow[0]
         labels = metadata[key]
         text = metadata["narration"]
-
         rgb_feats = self.rgb_model(rgb_images.to(self.device))
         flow_feats = self.flow_model(flow_images.to(self.device))
         narration_feats = self.narration_model(text)
@@ -457,33 +456,39 @@ class EpicActionRecognitionModule(object):
         return loss
 
     def load_models_to_device(self, device=None, verb=True):
-        if device is None:
-            device = self.device
-        assert device is not None, "device not set"
+        #* For HF
+        # if device is None:
+        #     device = self.device
+        # assert device is not None, "device not set"
         self.narration_model = load_model(self.cfg, modality="narration", device=device)
         self.rgb_model = load_model(self.cfg, modality="rgb", device=device)
         self.flow_model = load_model(self.cfg, modality="flow", device=device)
-
-        self.rgb_model.to(device)
-        self.flow_model.to(device)
+        #* For HF
+        # self.rgb_model.to(device)
+        # self.flow_model.to(device)
+        #! NOT for HF
         # self.narration_model.to(device)
         # self.rgb_model.train()
         # self.flow_model.train()
 
         if verb:
-            self.verb_embeddings = self.get_embeddings("verb").to(device)
+            #* For HF
+            # self.verb_embeddings = self.get_embeddings("verb").to(device)
+            self.verb_embeddings = self.get_embeddings("verb")
             # self.verb_model = AttentionModel(
             #     self.verb_embeddings, self.verb_map, device=device
             # ).to(device)
             # self.verb_model.train()
         else:
-            self.noun_embeddings = self.get_embeddings("noun").to(device)
+            #* For HF
+            # self.noun_embeddings = self.get_embeddings("noun").to(device)
+            self.noun_embeddings = self.get_embeddings("noun")
             # self.noun_model = AttentionModel(
             #     self.noun_embeddings, self.noun_map, device=device
             # ).to(device)
             # self.noun_model.train()
 
-        LOG.info("Loaded models to device")
+        # LOG.info("Loaded models to device")
 
     def early_stopping(self, loss, accuracy):
         if self.cfg.trainer.get("early_stopping", False):

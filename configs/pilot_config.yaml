@@ -4,7 +4,7 @@ data:
   frame_count: 32
   _root_gulp_dir: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/gulp
   worker_count: 0 # needs tuning
-  pin_memory: True
+  pin_memory: False
   verb_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_verb_classes.csv
   noun_loc: /coc/scratch/bdas31/EPIC-Kitchens_100/epic-kitchens-100-annotations/EPIC_100_noun_classes_v2.csv
   rgb:
@@ -46,7 +46,7 @@ model:
   weights: 
     rgb: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_rgb.ckpt
     flow: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_flow.ckpt
-  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/train_run_zatopek/temp
+  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/train_run_zatopek/temp_hf
   dropout: 0.7
   partial_bn: yes
   shift_div: 8
@@ -58,25 +58,28 @@ model:
 
 learning:
   batch_size: 6
-  val_batch_size: 32
+  val_batch_size: 16
+  transformer:
+    d_model: 384
+    nhead: 4
   optimizer:
     type: Adam
     args:
       weight_decay: 5e-4
     # momentum: 0.9
     # weight_decay: 5e-4
-  ddp: 
-    nprocs: 3
-    backend: nccl
-    master_port: 40845
-    nccl_p2p_disable: 1
+  # ddp: 
+  #   nprocs: 3
+  #   backend: nccl
+  #   master_port: 40845
+  #   nccl_p2p_disable: 1
   lr: 1e-4
   lr_scheduler:
     type: ReduceLROnPlateau
     args:
       mode: max
       factor: 0.5
-      patience: 10
+      patience: 2
       min_lr: 0.0001
   
 
@@ -90,7 +93,7 @@ trainer:
     threshold: 0.8
   gpus: 3
   # Write metrics to tensorboard logs every X iterations
-  tb_runs: ???
+  tb_runs: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/tensorboard/temp_hf
   log_every_n_steps: 10
 
 defaults:

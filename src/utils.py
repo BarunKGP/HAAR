@@ -3,6 +3,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import pickle
 import sys
+import re
 
 import einops
 import torch
@@ -95,6 +96,8 @@ def get_device():
     Returns:
         (str): device to run on
     """
+    return None
+    #* For HF
     if torch.cuda.is_available():
         device = "cuda:0"
     else:
@@ -125,6 +128,9 @@ def vector_gather(vectors, indices):
     if squeeze:
         out = out.squeeze(1)
     return out
+
+def strip_model_prefix(state_dict):
+    return {re.sub("^model.", "", k): v for k, v in state_dict.items()}
 
 
 def write_pickle(o, pname):
