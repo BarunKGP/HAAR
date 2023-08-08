@@ -1,8 +1,7 @@
 glove.6B.100d.word2vec
 .vscode
 *.ckpt
-
-
+data/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
