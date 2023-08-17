@@ -1,18 +1,25 @@
+from functools import partial
 from pathlib import Path
 import sys
 import os
 from omegaconf import DictConfig, OmegaConf
 import hydra
 from tqdm import tqdm
+from sklearn.metrics import accuracy_score
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.distributed import destroy_process_group, init_process_group
 from torch.utils.tensorboard.writer import SummaryWriter
+import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.optim import Adam, AdamW, SGD
 
-from models.models import AttentionModel
+from accelerate import Accelerator
+from accelerate.state import AcceleratorState
+
+from models.models import AttentionModel, HaarModel
 from systems.recognition_module import EpicActionRecognitionModule, DDPRecognitionModule
 from systems.data_module import EpicActionRecognitionDataModule
 from utils import (
@@ -23,11 +30,402 @@ from utils import (
     write_pickle,
     close_logger,
 )
-from constants import TRAIN_LOGNAME
+from constants import NUM_VERBS, TRAIN_LOGNAME, DEFAULT_ARGS, DEFAULT_OPT
 
 
 LOG = get_loggers(__name__, filename=TRAIN_LOGNAME)
 # writer = SummaryWriter("data/pilot-01/runs_2")
+
+
+class Trainer():
+    def __init__(self, name, cfg, device='cpu'):
+        self.cfg = cfg
+        self.name = name
+        self.device = device
+        
+        # initialize systems
+        datamodule = EpicActionRecognitionDataModule(cfg)
+        self.train_loader = datamodule.train_dataloader()
+        self.val_loader = datamodule.val_dataloader()
+        # self.test_loader = datamodule.test_dataloader()
+        self.loggers = self._init_loggers()
+        self.early_stopping = cfg.trainer.get('early_stopping', None)
+
+        self.model = HaarModel(cfg, cfg.model.transformer.dropout, device, cfg.model.get('linear_out', NUM_VERBS))
+        self.optimizer = self.get_optimizer()
+        self.loss = self.get_loss_fn()
+        self.cls_head = nn.Softmax(dim=-1)
+        
+        create_snapshot_paths(Path(cfg.model.save_path), logger=self.loggers["logger"])
+        self.train_map = {
+            'single': partial(self._train, cfg.trainer.max_epochs),
+            'accelerate': partial(self._accelerate_train, cfg.trainer.max_epochs),
+            'ddp': partial(self._run_ddp,),
+        }
+        
+        self.accelerator = None
+        self._distributed_setup()
+
+
+    def _init_loggers(self):
+        tb_loc = self.cfg.trainer.get('tb_runs', False)
+        tb_writer = None
+        if tb_loc:
+            os.makedirs(tb_loc, exist_ok=True)
+            tb_writer = SummaryWriter(tb_loc)
+    
+        logger_name = self.name + ':' + __name__
+        logger_filename = self.cfg.trainer.get('logfile', TRAIN_LOGNAME)
+
+        return {
+            "logger": get_loggers(logger_name, logger_filename),
+            "tb_writer": tb_writer,
+        }
+    
+    def get_loss_fn(self):
+        return nn.CrossEntropyLoss(
+            label_smoothing=self.cfg.trainer.loss_fn.args.get('label_smoothing', 0)
+        )   
+
+    def get_optimizer(self):
+        assert self.model is not None, "model not assigned"
+        lr = self.cfg.learning.lr
+        opt_params = [p for p in self.model.parameters() if p.requires_grad]
+        optimizer_map = {
+            "Adam": partial(Adam, opt_params, lr=lr),
+            "AdamW": partial(AdamW, opt_params, lr=lr),
+            "SGD": partial(SGD, opt_params, lr=lr),
+        }
+
+        if "optimizer" in self.cfg.learning:
+            opt_key = self.cfg.learning.optimizer.type
+            args = self.cfg.learning.optimizer.get("args", [])
+        else:
+            opt_key = DEFAULT_OPT
+            args = DEFAULT_ARGS
+        return optimizer_map[opt_key](**args)
+
+    def _distributed_setup(self):
+        if self.cfg.trainer.gpu_training.type.lower() in ['single', 'none']:
+            return None
+        elif self.cfg.trainer.gpu_training.type.lower() == 'accelerate':
+            accelerator = Accelerator()
+            self.train_loader, self.val_loader, self.model, self.optimizer = accelerator.prepare(
+                self.train_loader, self.val_loader, self.model, self.get_optimizer
+            )
+            self.accelerator = accelerator
+        elif self.cfg.trainer.gpu_training.type.lower() == 'ddp':
+            set_env_ddp(nccl_p2p_disable=self.cfg.trainer.gpu_training.args.get('nccl_p2p_disable', '0'))
+        else:
+            raise Exception("Invalid GPU training strategy. Please choose among [single, accelerate, ddp, None]")
+
+    def _run_ddp(self, ddp_fn, fn_args):
+        ddp_args = self.cfg.trainer.gpu_training.args
+        init_process_group(ddp_args.backend)
+        mp.spawn(
+            ddp_fn,
+            args=(fn_args),
+            nprocs = ddp_args.nprocs,
+            join=True,
+        )
+
+    def _backprop(self, loss):
+        if self.accelerator is not None:
+            self.accelerator.backward(loss)
+        else:
+            loss.backward()
+        self.optimizer.step()
+
+    def _train(self, num_epochs, validate_strategy='epoch'):
+        if validate_strategy == 'steps':
+            assert 'val_every_n_steps' in self.cfg.trainer.validate, 'Please specify the validation interval in the config file'
+        
+        # Prepare for model training
+        tb_writer = self.loggers['tb_writer']
+        LOG = self.loggers['logger']
+        log_n_steps = self.cfg.trainer.log_every_n_steps
+        val_n_steps = None if validate_strategy == 'epoch' else self.cfg.trainer.validate.val_every_n_steps
+        val_loss_history, val_acc_history = [], []
+        
+        LOG.info("Starting training with config:", OmegaConf.to_yaml(self.cfg))
+        LOG.info(self.model)
+        self.model.train()
+        if self.accelerator is not None:
+            self.model.device = self.accelerator.device
+        
+        for epoch in tqdm(range(num_epochs)):
+            epoch_loss = 0.
+            step_loss = step_acc = 0.
+            for i, batch in tqdm(enumerate(self.train_loader)):
+                self.optimizer.zero_grad()
+                labels = batch[0][1]['verb_class']
+                logits = self.model(batch)
+                loss = self.loss(logits, labels)
+                with torch.no_grad():
+                    y = torch.argmax(self.cls_head(logits), dim=1)
+                    accuracy = accuracy_score(labels, y)
+                    step_loss += loss.item()
+                    step_acc += accuracy
+                self._backprop(loss)
+
+                if i == 0:
+                    print(f'First step - Loss: {step_loss:.4f} Accuracy: {step_acc:.4f}')
+
+                if val_n_steps is not None and (i + 1) % val_n_steps == 0:     
+                    val_accuracy, _, early_stopping = self.validate()
+                    self.write_to_tensorboard(
+                        tb_writer, 
+                        on_main_process=False, 
+                        func_name='add_scalar', 
+                        args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader))
+                    )
+                
+                # Log training progress to tensorboard
+                if (i + 1) % log_n_steps == 0:
+                    avg_loss = step_loss / log_n_steps
+                    avg_acc = step_acc / log_n_steps
+                    # print(f'Step {i + 1} - Loss: {avg_loss:.4f} Accuracy: {avg_acc:.4f}')
+                    epoch_loss += step_loss
+                    step_loss = step_acc = 0.
+
+                    tb_steps = epoch * len(self.train_loader) + i + 1
+                    self.write_to_tensorboard(
+                        tb_writer,
+                        on_main_process=False,
+                        func_name='add_scalars',
+                        args=(
+                            "Training progress",
+                            {
+                                "train loss": avg_loss,
+                                "train accuracy": avg_acc,
+                            },
+                            tb_steps,
+                        )
+                    )
+    
+            if validate_strategy == 'epoch':
+                val_accuracy, val_loss, _ = self.validate()
+                self.write_to_tensorboard(
+                    tb_writer,
+                    on_main_process=False,
+                    func_name='add_scalar',
+                    args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader)),
+                )
+                val_loss_history.append(val_loss)
+                val_acc_history.append(val_accuracy)
+            
+            if (self.early_stopping['criterion'] == 'accuracy' and \
+                self.is_early_stopping(
+                    val_acc_history, 
+                    self.early_stopping['epochs'], 
+                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
+                    threshold_val=self.early_stopping['threshold']
+                )
+            ):
+                LOG.info("Early stopping threshold reached. Stopping training...")
+                return
+            
+            elif (self.early_stopping['criterion'] == 'loss' and \
+                self.is_early_stopping(
+                    val_loss_history, 
+                    self.early_stopping['epochs'], 
+                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
+                    threshold_val=self.early_stopping['threshold']
+                )
+            ):
+                LOG.info("Early stopping threshold reached. Stopping training...")
+                return
+            
+        LOG.info("Training completed!")    
+
+    def _accelerate_train(self, num_epochs, validate_strategy='epoch'):
+        assert self.accelerator is not None, 'Accelerator not initialized'
+        if validate_strategy == 'steps':
+            assert 'val_every_n_steps' in self.cfg.trainer.validate, 'Please specify the validation interval in the config file'
+        
+        # Prepare for model training
+        tb_writer = self.loggers['tb_writer']
+        LOG = self.loggers['logger']
+        log_n_steps = self.cfg.trainer.log_every_n_steps
+        val_n_steps = None if validate_strategy == 'epoch' else self.cfg.trainer.validate.val_every_n_steps
+        val_loss_history, val_acc_history = [], []
+        
+        LOG.info("Starting training with config:", OmegaConf.to_yaml(self.cfg))
+        LOG.info(self.model)
+        self.model.train()
+        self.model.device = self.accelerator.device
+        
+        for epoch in tqdm(range(num_epochs)):
+            epoch_loss = 0.
+            step_loss = step_acc = 0.
+            for i, batch in tqdm(enumerate(self.train_loader)):
+                with self.accelerator.accumulate(self.model):
+                    self.optimizer.zero_grad()
+                    labels = batch[0][1]['verb_class']
+                    logits = self.model(batch)
+                    loss = self.loss(logits, labels)
+                    with torch.no_grad():
+                        y = torch.argmax(self.cls_head(logits), dim=1)
+                        accuracy = accuracy_score(labels, y)
+                        step_loss += loss.item()
+                        step_acc += accuracy
+                    self._backprop(loss)
+
+                if i == 0:
+                    print(f'First step - Loss: {step_loss:.4f} Accuracy: {step_acc:.4f}')
+
+                if val_n_steps is not None and (i + 1) % val_n_steps == 0:     
+                    val_accuracy, _, early_stopping = self.validate()
+                    self.write_to_tensorboard(
+                        tb_writer, 
+                        on_main_process=False, 
+                        func_name='add_scalar', 
+                        args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader))
+                    )
+                
+                # Log training progress to tensorboard
+                if (i + 1) % log_n_steps == 0:
+                    avg_loss = step_loss / log_n_steps
+                    avg_acc = step_acc / log_n_steps
+                    epoch_loss += step_loss
+                    step_loss = step_acc = 0.
+
+                    tb_steps = epoch * len(self.train_loader) + i + 1
+                    self.write_to_tensorboard(
+                        tb_writer,
+                        on_main_process=False,
+                        func_name='add_scalars',
+                        args=(
+                            "Training progress",
+                            {
+                                "train loss": avg_loss,
+                                "train accuracy": avg_acc,
+                            },
+                            tb_steps,
+                        )
+                    )
+    
+            if validate_strategy == 'epoch':
+                val_accuracy, val_loss, _ = self.validate()
+                self.write_to_tensorboard(
+                    tb_writer,
+                    on_main_process=False,
+                    func_name='add_scalar',
+                    args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader)),
+                )
+                val_loss_history.append(val_loss)
+                val_acc_history.append(val_accuracy)
+            
+            if (self.early_stopping['criterion'] == 'accuracy' and \
+                self.is_early_stopping(
+                    val_acc_history, 
+                    self.early_stopping['epochs'], 
+                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
+                    threshold_val=self.early_stopping['threshold']
+                )
+            ):
+                LOG.info("Early stopping threshold reached. Stopping training...")
+                return
+            
+            elif (self.early_stopping['criterion'] == 'loss' and \
+                self.is_early_stopping(
+                    val_loss_history, 
+                    self.early_stopping['epochs'], 
+                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
+                    threshold_val=self.early_stopping['threshold']
+                )
+            ):
+                LOG.info("Early stopping threshold reached. Stopping training...")
+                return
+            
+        LOG.info("Training completed!")    
+    
+    def write_to_tensorboard(self, tb_writer, on_main_process, func_name, args):
+        if tb_writer is None:
+            return
+        tb_function = getattr(tb_writer, func_name)
+        
+        if on_main_process and self.accelerator is not None:
+            state = AcceleratorState()
+            if state.is_main_process:
+                return tb_function(args)
+        
+        return tb_function(args)
+
+  
+
+    def train(self, num_epochs, validate_strategy='epoch'):
+        # Determine GPU training strategy
+        gpu_strategy = self.cfg.trainer.gpu_training.type
+        if gpu_strategy == 'single':
+            self.model.to(self.device)
+        elif gpu_strategy == 'accelerate':
+            assert self.accelerator is not None, "Accelerator is not initialized"
+            self.device = self.accelerator.device
+        # elif gpu_strategy == 'ddp':
+        #     self._run_ddp(train_ddp, fn_args)
+
+       
+        train_fn = self.train_map[gpu_strategy]
+        train_fn(validate_strategy=validate_strategy)
+
+    def _accelerate_validate(self):
+        assert self.accelerator is not None, "Accelerator not initialized"
+        self.model.eval()
+        correct_preds = 0.
+        val_loss = 0.
+        num_elems = 0
+        for batch in tqdm(self.val_loader):
+            labels = batch[0][1]['verb_class']
+            with torch.no_grad():
+                logits = self.model(batch)
+                y = torch.argmax(self.cls_head(logits), dim=-1)
+            val_loss += self.loss(logits, labels).item()
+            accurate_preds = self.accelerator.gather(y) == self.accelerator.gather(labels)
+            correct_preds += accurate_preds.long().sum().item()    # type: ignore
+            num_elems += accurate_preds.shape[0]    # type: ignore
+
+        return val_loss/len(self.val_loader), correct_preds / num_elems, None        
+    
+    @torch.no_grad()
+    def validate(self):
+        self.model.eval()
+        correct_preds = 0.
+        val_loss = 0.
+        for batch in tqdm(self.val_loader):
+            labels = batch[0][1]['verb_class']
+            logits = self.model(batch)
+            loss = self.loss(logits, labels)
+            y = torch.argmax(self.cls_head(logits), dim=-1)
+            correct_preds += torch.sum(y == labels).item()
+            val_loss += loss.item()
+        accuracy = correct_preds / len(self.val_loader)
+        val_loss = val_loss / len(self.val_loader)
+        early_stopping = False
+        if (self.early_stopping['criterion'] == 'accuracy' and self.early_stopping['threshold'] < accuracy) or \
+            (self.early_stopping['criterion'] == 'loss' and self.early_stopping['threshold'] > val_loss):
+            early_stopping = True
+        
+        return accuracy, val_loss, early_stopping
+    
+    def is_early_stopping(self, metrics, early_stopping_epochs, threshold_epochs=0, threshold_val=0.):
+        '''metrics should be in order
+        '''
+        # Too few observations
+        if len(metrics) <= early_stopping_epochs or len(metrics) < threshold_epochs: 
+            return False
+        
+        last_n_metrics = metrics[-early_stopping_epochs:]
+        prev_n_metrics = metrics[-early_stopping_epochs-1:-1]
+        if torch.allclose(prev_n_metrics, last_n_metrics) and torch.all(last_n_metrics > threshold_val):
+            return True
+        
+        return False
+        
+        
+
+    
+
 
 
 def debug(loader):
@@ -52,12 +450,13 @@ def set_env_ddp(nccl_p2p_disable):
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
 
 
-def create_snapshot_paths(model_save_path):
+def create_snapshot_paths(model_save_path, logger=None):
     verb_save_path = model_save_path / "verbs"
     noun_save_path = model_save_path / "nouns"
     verb_save_path.mkdir(parents=True, exist_ok=True)
     noun_save_path.mkdir(parents=True, exist_ok=True)
-    LOG.info("Created snapshot paths for verbs and nouns")
+    if logger is not None:
+        logger.info("Created snapshot paths for verbs and nouns")
     return verb_save_path, noun_save_path
 
 
@@ -633,41 +1032,60 @@ def ddp_shutdown():
     destroy_process_group()
     # writer.close()
 
+def get_device_from_config(config):
+    if 'gpu_training' not in config.trainer:
+        return torch.device('cpu')
+    training_type = config.trainer.gpu_training.type
+    if training_type == 'None':
+        return torch.device('cpu')
+    elif training_type == 'single':
+        return torch.device(config.trainer.gpu_training.args.device_id)
+    elif training_type == 'accelerate':
+        return None
+    else:
+        raise Exception("Incorrect config mapping")
 
 @hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
 def main(cfg: DictConfig):
     LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
-    data_module = EpicActionRecognitionDataModule(cfg)
-    verb_path, noun_path = create_snapshot_paths(Path(cfg.model.save_path))
-    tb_writer = SummaryWriter(cfg.trainer.tb_runs)
-    if cfg.learning.get("ddp", False):
-        change_port = "Y"
-        if cfg.learning.ddp.get("master_port", None) is not None:
-            change_port = input(
-                f"Would you like to change the DDP master port from {cfg.learning.ddp.master_port} (Y/N)? "
-            )
-        if change_port and change_port.upper() == "Y":
-            new_port = input("Please enter new port ")
-            cfg.learning.ddp.master_port = new_port
+    device = get_device_from_config(cfg)
+    trainer = Trainer(name='transformers_testing', cfg=cfg, device=device)
+    trainer.train(cfg.trainer.max_epochs)
+
+
+
+
+    # data_module = EpicActionRecognitionDataModule(cfg)
+    # verb_path, noun_path = create_snapshot_paths(Path(cfg.model.save_path))
+    # tb_writer = SummaryWriter(cfg.trainer.tb_runs)
+    # if cfg.learning.get("ddp", False):
+    #     change_port = "Y"
+    #     if cfg.learning.ddp.get("master_port", None) is not None:
+    #         change_port = input(
+    #             f"Would you like to change the DDP master port from {cfg.learning.ddp.master_port} (Y/N)? "
+    #         )
+    #     if change_port and change_port.upper() == "Y":
+    #         new_port = input("Please enter new port ")
+    #         cfg.learning.ddp.master_port = new_port
         
-        print(f"Proceeding with port {cfg.learning.ddp.master_port}")
-        system = DDPRecognitionModule(cfg)
-        set_env_ddp(str(cfg.learning.ddp.get("nccl_p2p_disable", 1)))
-        run_ddp(
-            system,
-            data_module,
-            cfg.learning.ddp.master_port,
-            verb_path,
-            noun_path,
-            ddp_train,
-        )
-    else:
-        system = EpicActionRecognitionModule(cfg)
-        device = get_device()
-        train(device, data_module, system, verb_path, noun_path, tb_writer)
-    LOG.info("Training completed!")
-    close_logger(LOG)
-    sys.exit()  # required to prevent CPU lock (soft bug)
+    #     print(f"Proceeding with port {cfg.learning.ddp.master_port}")
+    #     system = DDPRecognitionModule(cfg)
+    #     set_env_ddp(str(cfg.learning.ddp.get("nccl_p2p_disable", 1)))
+    #     run_ddp(
+    #         system,
+    #         data_module,
+    #         cfg.learning.ddp.master_port,
+    #         verb_path,
+    #         noun_path,
+    #         ddp_train,
+    #     )
+    # else:
+    #     system = EpicActionRecognitionModule(cfg)
+    #     device = get_device()
+    #     train(device, data_module, system, verb_path, noun_path, tb_writer)
+    # LOG.info("Training completed!")
+    # close_logger(LOG)
+    # sys.exit()  # required to prevent CPU lock (soft bug)
 
 
 if __name__ == "__main__":

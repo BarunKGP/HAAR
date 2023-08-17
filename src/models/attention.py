@@ -113,7 +113,6 @@ class DecoderBlock(nn.Module):
     def forward(self, x, value, key, src_mask, trg_mask):
         attention = self.attention(x, x, x, trg_mask)
         query = self.dropout(self.norm(attention + x))
-        print(f'{value.shape}, {key.shape}, {query.shape}')
         return self.transformer_block(value, key, query, src_mask)
     
 class Decoder(nn.Module):
@@ -145,7 +144,7 @@ class Transformer(nn.Module):
             src_vocab_size,
             trg_vocab_size,
             src_pad_idx,
-            trg_pad_idx,
+            # trg_pad_idx,
             embed_size=512,
             num_layers=6,
             heads=8,
@@ -155,7 +154,16 @@ class Transformer(nn.Module):
             device='cpu',
     ):
         super().__init__()
-        self.encoder = Encoder(src_vocab_size, trg_vocab_size, num_layers, heads, forward_expansion, dropout, max_length, device)
+        self.encoder = Encoder(
+            src_vocab_size, 
+            embed_size,
+            num_layers, 
+            heads, 
+            forward_expansion, 
+            dropout, 
+            max_length, 
+            device,
+        )
         self.decoder = Decoder(
             trg_vocab_size,
             embed_size,
@@ -166,16 +174,21 @@ class Transformer(nn.Module):
             device,
             max_length,
         )
+        # self.decoder.word_embedding.weight = self.encoder.word_embedding.weight
+        # self.decoder.position_embedding.weight = self.encoder.position_embedding.weight
         self.src_pad_idx = src_pad_idx
-        self.trg_pad_idx = trg_pad_idx
+        # self.trg_pad_idx = trg_pad_idx
         self.device = device
 
     def make_src_mask(self, src):
-        src_mask = (src != self.src_pad_idx).unsqueeze(1).unsqueeze(2) # will depend on the tensor shape being passed
-        return src_mask.to(self.device)
+        if self.src_pad_idx is not None:
+            src_mask = (src != self.src_pad_idx).unsqueeze(1).unsqueeze(2) # will depend on the tensor shape being passed
+            return src_mask.to(self.device)
+        return None
     
     def make_trg_mask(self, trg):
-        N, trg_len = trg.shape
+        print(f'trg shape = {trg.shape}')
+        N, _, trg_len = trg.shape
         trg_mask = torch.tril(torch.ones(trg_len, trg_len)).expand(
             N, 1, trg_len, trg_len
         )
@@ -185,5 +198,5 @@ class Transformer(nn.Module):
         src_mask = self.make_src_mask(src)
         trg_mask = self.make_trg_mask(trg)
         enc_src = self.encoder(src, src_mask)
-        print(src.shape, enc_src.shape)
+        # print(src.shape, enc_src.shape)
         return self.decoder(trg, enc_src, src_mask, trg_mask)

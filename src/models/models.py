@@ -16,14 +16,14 @@ class WordEmbeddings(nn.Module):
     def __init__(self, device='cpu') -> None:
         super().__init__()
         self.device = device
-        self.model = SentenceTransformer(SENTENCE_TRANSFORMER_MODEL, device=self.device)
+        self.model = SentenceTransformer(SENTENCE_TRANSFORMER_MODEL)
 
     def forward(self, text):
         embeddings = self.model.encode(text)
-        return torch.from_numpy(embeddings).to(self.device)
+        return torch.from_numpy(embeddings)
 
 class EmbeddingModel(nn.Module):
-    def __init__(self, cfg, dropout, device):
+    def __init__(self, cfg, dropout, device, embed_size=WORD_EMBEDDING_SIZE, n_conv=100):
         super().__init__()
         self.device = device
         self.cfg = cfg
@@ -31,10 +31,10 @@ class EmbeddingModel(nn.Module):
         self.rgb_model = self._load_vision_model(modality="rgb")
         self.flow_model = self._load_vision_model(modality="flow")
         self.linear_layer = nn.Sequential(
-            nn.Conv1d(in_channels=1, out_channels=100, kernel_size=3),
+            nn.Conv1d(in_channels=1, out_channels=n_conv, kernel_size=3),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(MULTIMODAL_FEATURE_SIZE, WORD_EMBEDDING_SIZE),
+            nn.Linear(MULTIMODAL_FEATURE_SIZE, embed_size),
         )
 
 
@@ -53,7 +53,7 @@ class EmbeddingModel(nn.Module):
             shift_div=self.cfg.model.shift_div,
             non_local=self.cfg.model.non_local,
             temporal_pool=self.cfg.model.temporal_pool,
-            freeze_train_layers=False,
+            freeze_train_layers=self.cfg.model.freeze_pretrain_layers,
         )
 
         if self.cfg.model.get("weights", None) is not None:
@@ -97,30 +97,33 @@ class EmbeddingModel(nn.Module):
     def forward(self, x, permute_dims=True):
         (rgb, metadata), (flow, _) = x
         narration = metadata['narration']
-        rgb_feats = self.rgb_model(rgb.to(self.device))
-        flow_feats = self.flow_model(flow.to(self.device))
+        rgb_feats = self.rgb_model(rgb)
+        flow_feats = self.flow_model(flow)
         narration_feats = self.narration_model(narration)
 
-        feats = torch.hstack([rgb_feats, flow_feats, narration_feats])
-        feats = feats[:, None, :].to(torch.float32)
+        feats = torch.hstack([rgb_feats, flow_feats, narration_feats]).unsqueeze(1)
+        # feats = feats[:, None, :].to(torch.float32)
         feats = self.linear_layer(feats)
         return feats.permute((0, 2, 1)) if permute_dims else feats
     
 
 class HaarModel(nn.Module):
-    def __init__(self, cfg, linear_out, dropout, device):
+    def __init__(self, cfg, dropout, device, linear_out, embed_size=WORD_EMBEDDING_SIZE, n_conv=100):
         super().__init__()
-        self.cfg = cfg
+        # self.cfg = cfg
         self.device = device
-        self.feature_model = EmbeddingModel(device, cfg, dropout)
+        self.feature_model = EmbeddingModel(cfg, dropout, device, embed_size, n_conv)
         self.transformer = nn.Transformer(
-            d_model=cfg.learning.transformer.d_model,
-            nhead=cfg.learning.transformer.nhead,
+            d_model=cfg.model.transformer.d_model,
+            nhead=cfg.model.transformer.nhead,
             batch_first=True,
             dropout=dropout,
             device=device,
         )
-        self.fc_out = nn.Linear(100*WORD_EMBEDDING_SIZE, linear_out)
+        self.fc_out = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(100*embed_size, linear_out)
+        )
 
     def _get_target_mask(self, feats):
         trg_len = feats.shape[1]

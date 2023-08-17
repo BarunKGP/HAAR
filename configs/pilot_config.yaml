@@ -46,34 +46,31 @@ model:
   weights: 
     rgb: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_rgb.ckpt
     flow: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_flow.ckpt
-  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/train_run_zatopek/temp_hf
+  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/train_run_zatopek/temp_transformer
   dropout: 0.7
   partial_bn: yes
   shift_div: 8
   non_local: False
   temporal_pool: False
   num_class: 1024
+  freeze_pretrain_layers: True
   narration_model:
     pretrained: True
-
-learning:
-  batch_size: 6
-  val_batch_size: 16
   transformer:
     d_model: 384
-    nhead: 4
+    nhead: 8
+    blocks: 6
+    dropout: 0.1
+  linear_out: 97  # num_verbs (only keys)
+
+learning:
+  batch_size: 4
+  val_batch_size: 16
   optimizer:
-    type: Adam
+    type: AdamW
     args:
       weight_decay: 5e-4
-    # momentum: 0.9
-    # weight_decay: 5e-4
-  # ddp: 
-  #   nprocs: 3
-  #   backend: nccl
-  #   master_port: 40845
-  #   nccl_p2p_disable: 1
-  lr: 1e-4
+  lr: 3e-4
   lr_scheduler:
     type: ReduceLROnPlateau
     args:
@@ -91,9 +88,23 @@ trainer:
   early_stopping:
     criterion: accuracy
     threshold: 0.8
-  gpus: 3
+  loss_fn:
+    type: CrossEntropyLoss
+    args:
+      label_smoothing: 0.1
+  gpu_training:
+    type: "accelerate"
+    args:
+      devices: 3
+    # ddp: 
+    #   nprocs: 3
+    #   backend: nccl
+    #   # master_port: 40845
+    #   # nccl_p2p_disable: 1
+      # device_id: 2
+
   # Write metrics to tensorboard logs every X iterations
-  tb_runs: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/tensorboard/temp_hf
+  tb_runs: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/tensorboard/transformers
   log_every_n_steps: 10
 
 defaults:
