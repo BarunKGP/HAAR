@@ -157,7 +157,7 @@ class EpicActionRecognitionDataModule(object):
         return DataLoader(
             dataset=dataset,
             batch_size=self.cfg.learning.batch_size,
-            shuffle=False,  # ? should shuffle be true
+            shuffle=True,  # ? should shuffle be true
             num_workers=self.cfg.data.worker_count,
             pin_memory=self.cfg.data.pin_memory,
         )

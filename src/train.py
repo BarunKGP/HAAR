@@ -5,6 +5,7 @@ import os
 from omegaconf import DictConfig, OmegaConf
 import hydra
 from tqdm import tqdm
+import pprint
 from sklearn.metrics import accuracy_score
 
 import torch
@@ -15,6 +16,7 @@ from torch.utils.tensorboard.writer import SummaryWriter
 import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import Adam, AdamW, SGD
+import torch.cuda.amp as amp
 
 from accelerate import Accelerator
 from accelerate.state import AcceleratorState
@@ -50,21 +52,31 @@ class Trainer():
         # self.test_loader = datamodule.test_dataloader()
         self.loggers = self._init_loggers()
         self.early_stopping = cfg.trainer.get('early_stopping', None)
+        self.use_amp = False if cfg.trainer.get('precision', 'full') == 'full' else True
+        # self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
 
         self.model = HaarModel(cfg, cfg.model.transformer.dropout, device, cfg.model.get('linear_out', NUM_VERBS))
         self.optimizer = self.get_optimizer()
         self.loss = self.get_loss_fn()
         self.cls_head = nn.Softmax(dim=-1)
+
+        LOG = self.loggers['logger']
+        create_snapshot_paths(Path(cfg.model.save_path), logger=LOG)
+        LOG.info('Models initialized\n' + str(self.model))
+        LOG.info(f'Trainable parameters = {sum([p.numel() for p in self.model.parameters() if p.requires_grad])}')
         
-        create_snapshot_paths(Path(cfg.model.save_path), logger=self.loggers["logger"])
-        self.train_map = {
-            'single': partial(self._train, cfg.trainer.max_epochs),
-            'accelerate': partial(self._accelerate_train, cfg.trainer.max_epochs),
-            'ddp': partial(self._run_ddp,),
-        }
+        self.accelerator = Accelerator(gradient_accumulation_steps=self.cfg.trainer.get('gradient_accumulation_steps', 1))
+        # if self.accelerator is not None:
+        # self.device = self.accelerator.device
+                
+        # self.train_map = {
+        #     'single': partial(self._train, cfg.trainer.max_epochs),
+        #     'accelerate': partial(self._accelerate_train, cfg.trainer.max_epochs),
+        #     'ddp': partial(self._run_ddp,),
+        # }
+        #! debug
+        # LOG.info(f'self.device = {self.device}') # type: ignore
         
-        self.accelerator = None
-        self._distributed_setup()
 
 
     def _init_loggers(self):
@@ -105,15 +117,14 @@ class Trainer():
             args = DEFAULT_ARGS
         return optimizer_map[opt_key](**args)
 
-    def _distributed_setup(self):
+    def _distributed_setup(self) -> None:
         if self.cfg.trainer.gpu_training.type.lower() in ['single', 'none']:
             return None
         elif self.cfg.trainer.gpu_training.type.lower() == 'accelerate':
-            accelerator = Accelerator()
-            self.train_loader, self.val_loader, self.model, self.optimizer = accelerator.prepare(
-                self.train_loader, self.val_loader, self.model, self.get_optimizer
+            # accelerator = Accelerator(gradient_accumulation_steps=self.cfg.trainer.get('gradient_accumulation_steps', 1))
+            self.train_loader, self.val_loader, self.model, self.optimizer = self.accelerator.prepare(
+                self.train_loader, self.val_loader, self.model, self.optimizer
             )
-            self.accelerator = accelerator
         elif self.cfg.trainer.gpu_training.type.lower() == 'ddp':
             set_env_ddp(nccl_p2p_disable=self.cfg.trainer.gpu_training.args.get('nccl_p2p_disable', '0'))
         else:
@@ -130,283 +141,247 @@ class Trainer():
         )
 
     def _backprop(self, loss):
-        if self.accelerator is not None:
-            self.accelerator.backward(loss)
-        else:
-            loss.backward()
+        self.accelerator.backward(loss)
         self.optimizer.step()
-
-    def _train(self, num_epochs, validate_strategy='epoch'):
-        if validate_strategy == 'steps':
-            assert 'val_every_n_steps' in self.cfg.trainer.validate, 'Please specify the validation interval in the config file'
+        self.optimizer.zero_grad(set_to_none=True)
         
-        # Prepare for model training
-        tb_writer = self.loggers['tb_writer']
-        LOG = self.loggers['logger']
-        log_n_steps = self.cfg.trainer.log_every_n_steps
-        val_n_steps = None if validate_strategy == 'epoch' else self.cfg.trainer.validate.val_every_n_steps
-        val_loss_history, val_acc_history = [], []
-        
-        LOG.info("Starting training with config:", OmegaConf.to_yaml(self.cfg))
-        LOG.info(self.model)
-        self.model.train()
-        if self.accelerator is not None:
-            self.model.device = self.accelerator.device
-        
-        for epoch in tqdm(range(num_epochs)):
-            epoch_loss = 0.
-            step_loss = step_acc = 0.
-            for i, batch in tqdm(enumerate(self.train_loader)):
-                self.optimizer.zero_grad()
-                labels = batch[0][1]['verb_class']
-                logits = self.model(batch)
-                loss = self.loss(logits, labels)
-                with torch.no_grad():
-                    y = torch.argmax(self.cls_head(logits), dim=1)
-                    accuracy = accuracy_score(labels, y)
-                    step_loss += loss.item()
-                    step_acc += accuracy
-                self._backprop(loss)
+        # # self.scaler.scale(loss)
+        # if self.use_amp:
+        # # if self.accelerator is not None:
+        #     self.accelerator.backward(self.scaler.scale(loss))
+        #     self.scaler.step(self.optimizer)   
+        #     self.scaler.update()
+        # else:
+        #     self.accelerator.backward(loss)
+        #     self.optimizer.step()
+        # self.optimizer.zero_grad(set_to_none=True)
 
-                if i == 0:
-                    print(f'First step - Loss: {step_loss:.4f} Accuracy: {step_acc:.4f}')
-
-                if val_n_steps is not None and (i + 1) % val_n_steps == 0:     
-                    val_accuracy, _, early_stopping = self.validate()
-                    self.write_to_tensorboard(
-                        tb_writer, 
-                        on_main_process=False, 
-                        func_name='add_scalar', 
-                        args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader))
-                    )
-                
-                # Log training progress to tensorboard
-                if (i + 1) % log_n_steps == 0:
-                    avg_loss = step_loss / log_n_steps
-                    avg_acc = step_acc / log_n_steps
-                    # print(f'Step {i + 1} - Loss: {avg_loss:.4f} Accuracy: {avg_acc:.4f}')
-                    epoch_loss += step_loss
-                    step_loss = step_acc = 0.
-
-                    tb_steps = epoch * len(self.train_loader) + i + 1
-                    self.write_to_tensorboard(
-                        tb_writer,
-                        on_main_process=False,
-                        func_name='add_scalars',
-                        args=(
-                            "Training progress",
-                            {
-                                "train loss": avg_loss,
-                                "train accuracy": avg_acc,
-                            },
-                            tb_steps,
-                        )
-                    )
-    
-            if validate_strategy == 'epoch':
-                val_accuracy, val_loss, _ = self.validate()
-                self.write_to_tensorboard(
-                    tb_writer,
-                    on_main_process=False,
-                    func_name='add_scalar',
-                    args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader)),
-                )
-                val_loss_history.append(val_loss)
-                val_acc_history.append(val_accuracy)
-            
-            if (self.early_stopping['criterion'] == 'accuracy' and \
-                self.is_early_stopping(
-                    val_acc_history, 
-                    self.early_stopping['epochs'], 
-                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
-                    threshold_val=self.early_stopping['threshold']
-                )
-            ):
-                LOG.info("Early stopping threshold reached. Stopping training...")
-                return
-            
-            elif (self.early_stopping['criterion'] == 'loss' and \
-                self.is_early_stopping(
-                    val_loss_history, 
-                    self.early_stopping['epochs'], 
-                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
-                    threshold_val=self.early_stopping['threshold']
-                )
-            ):
-                LOG.info("Early stopping threshold reached. Stopping training...")
-                return
-            
-        LOG.info("Training completed!")    
-
-    def _accelerate_train(self, num_epochs, validate_strategy='epoch'):
-        assert self.accelerator is not None, 'Accelerator not initialized'
-        if validate_strategy == 'steps':
-            assert 'val_every_n_steps' in self.cfg.trainer.validate, 'Please specify the validation interval in the config file'
-        
-        # Prepare for model training
-        tb_writer = self.loggers['tb_writer']
-        LOG = self.loggers['logger']
-        log_n_steps = self.cfg.trainer.log_every_n_steps
-        val_n_steps = None if validate_strategy == 'epoch' else self.cfg.trainer.validate.val_every_n_steps
-        val_loss_history, val_acc_history = [], []
-        
-        LOG.info("Starting training with config:", OmegaConf.to_yaml(self.cfg))
-        LOG.info(self.model)
-        self.model.train()
-        self.model.device = self.accelerator.device
-        
-        for epoch in tqdm(range(num_epochs)):
-            epoch_loss = 0.
-            step_loss = step_acc = 0.
-            for i, batch in tqdm(enumerate(self.train_loader)):
-                with self.accelerator.accumulate(self.model):
-                    self.optimizer.zero_grad()
-                    labels = batch[0][1]['verb_class']
-                    logits = self.model(batch)
-                    loss = self.loss(logits, labels)
-                    with torch.no_grad():
-                        y = torch.argmax(self.cls_head(logits), dim=1)
-                        accuracy = accuracy_score(labels, y)
-                        step_loss += loss.item()
-                        step_acc += accuracy
-                    self._backprop(loss)
-
-                if i == 0:
-                    print(f'First step - Loss: {step_loss:.4f} Accuracy: {step_acc:.4f}')
-
-                if val_n_steps is not None and (i + 1) % val_n_steps == 0:     
-                    val_accuracy, _, early_stopping = self.validate()
-                    self.write_to_tensorboard(
-                        tb_writer, 
-                        on_main_process=False, 
-                        func_name='add_scalar', 
-                        args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader))
-                    )
-                
-                # Log training progress to tensorboard
-                if (i + 1) % log_n_steps == 0:
-                    avg_loss = step_loss / log_n_steps
-                    avg_acc = step_acc / log_n_steps
-                    epoch_loss += step_loss
-                    step_loss = step_acc = 0.
-
-                    tb_steps = epoch * len(self.train_loader) + i + 1
-                    self.write_to_tensorboard(
-                        tb_writer,
-                        on_main_process=False,
-                        func_name='add_scalars',
-                        args=(
-                            "Training progress",
-                            {
-                                "train loss": avg_loss,
-                                "train accuracy": avg_acc,
-                            },
-                            tb_steps,
-                        )
-                    )
-    
-            if validate_strategy == 'epoch':
-                val_accuracy, val_loss, _ = self.validate()
-                self.write_to_tensorboard(
-                    tb_writer,
-                    on_main_process=False,
-                    func_name='add_scalar',
-                    args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader)),
-                )
-                val_loss_history.append(val_loss)
-                val_acc_history.append(val_accuracy)
-            
-            if (self.early_stopping['criterion'] == 'accuracy' and \
-                self.is_early_stopping(
-                    val_acc_history, 
-                    self.early_stopping['epochs'], 
-                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
-                    threshold_val=self.early_stopping['threshold']
-                )
-            ):
-                LOG.info("Early stopping threshold reached. Stopping training...")
-                return
-            
-            elif (self.early_stopping['criterion'] == 'loss' and \
-                self.is_early_stopping(
-                    val_loss_history, 
-                    self.early_stopping['epochs'], 
-                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
-                    threshold_val=self.early_stopping['threshold']
-                )
-            ):
-                LOG.info("Early stopping threshold reached. Stopping training...")
-                return
-            
-        LOG.info("Training completed!")    
-    
-    def write_to_tensorboard(self, tb_writer, on_main_process, func_name, args):
+    def write_to_tensorboard(self, tb_writer, func_name, args, on_main_process=True, gpu_train_type='accelerate'):
         if tb_writer is None:
             return
+        
         tb_function = getattr(tb_writer, func_name)
+        if on_main_process:
+            if gpu_train_type == 'accelerate':
+                state = AcceleratorState()
+                if state.is_main_process:
+                    return tb_function(*args)
+            elif gpu_train_type == 'ddp':
+                if dist.get_rank() == 0:
+                    return tb_function(*args)
         
-        if on_main_process and self.accelerator is not None:
-            state = AcceleratorState()
-            if state.is_main_process:
-                return tb_function(args)
+        return tb_function(*args)
+    
+    def compute_accuracy(self, logits, labels , distributed=False):
+        y = torch.argmax(self.cls_head(logits), dim=-1)
+        if distributed:
+            accurate_preds = self.accelerator.gather(y) == self.accelerator.gather(labels)
+        else:
+            accurate_preds = (y == labels)
+        return accurate_preds
+
+    def train(self, num_epochs, validate_strategy='epoch') -> None:
+        ''' Launches the training loop. Based on the config provided, 
+        it uses either HuggingFace Accelerate or PytTorch DDP to 
+        perform distributed training and inference.
+
+        __args__
+            num_epochs (int): number of epochs to train for
+            validate_strategy (str): whether to validate after a
+                certain number of steps or after each epoch. Defaults
+                to 'epoch'
         
-        return tb_function(args)
-
-  
-
-    def train(self, num_epochs, validate_strategy='epoch'):
-        # Determine GPU training strategy
+        '''
+        #* Determine GPU training strategy
         gpu_strategy = self.cfg.trainer.gpu_training.type
         if gpu_strategy == 'single':
             self.model.to(self.device)
         elif gpu_strategy == 'accelerate':
             assert self.accelerator is not None, "Accelerator is not initialized"
             self.device = self.accelerator.device
-        # elif gpu_strategy == 'ddp':
+        #TODO elif gpu_strategy == 'ddp':
         #     self._run_ddp(train_ddp, fn_args)
 
-       
-        train_fn = self.train_map[gpu_strategy]
-        train_fn(validate_strategy=validate_strategy)
+        # #* Launch training function
+        # train_fn = self.train_map[gpu_strategy]
+        # return train_fn(validate_strategy=validate_strategy)
+        
+        # Updated train function (def _train() )
+        #! DEPRECATED
+        if validate_strategy == 'steps':
+            assert 'val_every_n_steps' in self.cfg.trainer.validate, \
+            'Please specify the validation interval in the config file'
+        
+        # Prepare for model training
+        tb_writer = self.loggers['tb_writer']
+        LOG = self.loggers['logger']
+        log_n_steps = self.cfg.trainer.log_every_n_steps
+        val_n_steps = None if validate_strategy == 'epoch' else self.cfg.trainer.validate.val_every_n_steps
+        val_loss_history, val_acc_history = [], []
 
-    def _accelerate_validate(self):
-        assert self.accelerator is not None, "Accelerator not initialized"
+        precision = self.cfg.trainer.get('precision', 'full')
+        scale_map = {
+            'fp16': torch.float16,
+            'bf16': torch.bfloat16,
+            'full': torch.float32,
+        }
+        
+        LOG.info("Starting training with config\n" + OmegaConf.to_yaml(self.cfg))
+        self.model.train()
+        if self.accelerator is not None:
+            self.model.device = self.accelerator.device
+
+        # helper function
+        def _train_helper(batch):
+            ''' Helper function that executes the core training
+            loop in all training environments. Can be combined 
+            with gradient accumulation in accelerate
+
+            __args__
+                batch: current training batch
+            '''
+            labels = batch[0][1]['verb_class']
+            logits = self.model(batch, fp16=self.use_amp)
+            loss = self.loss(logits, labels)
+            self._backprop(loss)
+            return loss.item(), self.compute_accuracy(logits, labels)
+            
+        def accelerate_debug():
+            self.accelerator.print('Model named parameters:')
+            for name, param in self.model.named_parameters():
+                if param.requires_grad:
+                    self.accelerator.print(name, param.shape, param.dtype)
+            
+        
+        self._distributed_setup()
+        accelerate_debug()
+        
+        # Training loop
+        for epoch in tqdm(range(num_epochs)):
+            epoch_loss = 0.
+            step_loss = step_acc = 0.
+            num_elems = 0
+            correct_preds = 0
+            for i, batch in tqdm(enumerate(self.train_loader), total=len(self.train_loader)):
+                # if self.accelerator is not None:
+                with self.accelerator.accumulate(self.model):
+                    loss, accurate_preds = _train_helper(batch)
+                    step_loss += loss
+                    correct_preds += accurate_preds.long().sum().item() # type: ignore
+                    num_elems += accurate_preds.shape[0] # type: ignore
+
+                # else:
+                #     _train_helper(batch)
+                
+                #! debug
+                if i == 0:
+                    print(f'First step - Loss: {step_loss:.4f} Accuracy: {step_acc:.4f}')
+
+                if val_n_steps is not None and (i + 1) % val_n_steps == 0:     
+                    val_accuracy, val_loss = self.validate()
+                    self.write_to_tensorboard(
+                        tb_writer, 
+                        func_name='add_scalar', 
+                        args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader)),
+                        gpu_train_type=gpu_strategy,
+                    )
+                    val_acc_history.append(val_accuracy)
+                    val_loss_history.append(val_loss)
+                
+                # Log training progress to tensorboard
+                if (i + 1) % log_n_steps == 0:
+                    avg_loss = step_loss / log_n_steps
+                    # avg_acc = step_acc / log_n_steps
+                    avg_acc = correct_preds / num_elems
+                    epoch_loss += step_loss
+                    step_loss = step_acc = 0.
+                    correct_preds = num_elems = 0
+
+                    tb_steps = epoch * len(self.train_loader) + i + 1
+                    self.write_to_tensorboard(
+                        tb_writer,
+                        func_name='add_scalars',
+                        args=(
+                            "Training progress",
+                            {
+                                "train loss": avg_loss,
+                                "train accuracy": avg_acc,
+                            },
+                            tb_steps,
+                        ),
+                        gpu_train_type=gpu_strategy,
+                    )
+
+            # Validation loop after each epoch
+            if validate_strategy == 'epoch':
+                val_accuracy, val_loss = self.validate()
+                self.write_to_tensorboard(
+                    tb_writer,
+                    func_name='add_scalar',
+                    args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader)),
+                    gpu_train_type=gpu_strategy,
+                )
+                val_loss_history.append(val_loss)
+                val_acc_history.append(val_accuracy)
+            
+            # Check early stopping conditions after each epoch
+            if (self.early_stopping['criterion'] == 'accuracy' and \
+                self.is_early_stopping(
+                    val_acc_history, 
+                    self.early_stopping['epochs'], 
+                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
+                    threshold_val=self.early_stopping['threshold']
+                )
+            ):
+                LOG.info("Early stopping threshold reached. Stopping training...")
+                return
+            
+            elif (self.early_stopping['criterion'] == 'loss' and \
+                self.is_early_stopping(
+                    val_loss_history, 
+                    self.early_stopping['epochs'], 
+                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
+                    threshold_val=self.early_stopping['threshold']
+                )
+            ):
+                LOG.info("Early stopping threshold reached. Stopping training...")
+                return
+            
+        LOG.info("Training completed!") 
+    
+    @torch.no_grad()
+    def validate(self, distributed=True):
         self.model.eval()
         correct_preds = 0.
         val_loss = 0.
         num_elems = 0
         for batch in tqdm(self.val_loader):
             labels = batch[0][1]['verb_class']
-            with torch.no_grad():
-                logits = self.model(batch)
-                y = torch.argmax(self.cls_head(logits), dim=-1)
+            logits = self.model(batch)
+
             val_loss += self.loss(logits, labels).item()
-            accurate_preds = self.accelerator.gather(y) == self.accelerator.gather(labels)
+            # TODO: configure distributed validation on other training modes (DDP)
+            # TODO: figure out non-distributed validation
+            accurate_preds = self.compute_accuracy(logits, labels, distributed)
+
+            # y = torch.argmax(self.cls_head(logits), dim=-1)
+            # if distributed:
+            #     if self.accelerator is not None:
+            #         accurate_preds = self.accelerator.gather(y) == self.accelerator.gather(labels)
+            # else:
+            #     pass
+            
             correct_preds += accurate_preds.long().sum().item()    # type: ignore
             num_elems += accurate_preds.shape[0]    # type: ignore
-
-        return val_loss/len(self.val_loader), correct_preds / num_elems, None        
-    
-    @torch.no_grad()
-    def validate(self):
-        self.model.eval()
-        correct_preds = 0.
-        val_loss = 0.
-        for batch in tqdm(self.val_loader):
-            labels = batch[0][1]['verb_class']
-            logits = self.model(batch)
-            loss = self.loss(logits, labels)
-            y = torch.argmax(self.cls_head(logits), dim=-1)
-            correct_preds += torch.sum(y == labels).item()
-            val_loss += loss.item()
-        accuracy = correct_preds / len(self.val_loader)
-        val_loss = val_loss / len(self.val_loader)
-        early_stopping = False
-        if (self.early_stopping['criterion'] == 'accuracy' and self.early_stopping['threshold'] < accuracy) or \
-            (self.early_stopping['criterion'] == 'loss' and self.early_stopping['threshold'] > val_loss):
-            early_stopping = True
         
-        return accuracy, val_loss, early_stopping
+        val_accuracy = correct_preds / num_elems
+        val_loss = val_loss / len(self.val_loader)
+        # early_stopping = False
+        # if (self.early_stopping['criterion'] == 'accuracy' and self.early_stopping['threshold'] < accuracy) or \
+        #     (self.early_stopping['criterion'] == 'loss' and self.early_stopping['threshold'] > val_loss):
+        #     early_stopping = True
+        
+        return val_accuracy, val_loss
     
     def is_early_stopping(self, metrics, early_stopping_epochs, threshold_epochs=0, threshold_val=0.):
         '''metrics should be in order
@@ -421,11 +396,6 @@ class Trainer():
             return True
         
         return False
-        
-        
-
-    
-
 
 
 def debug(loader):
@@ -490,7 +460,7 @@ def ddp_setup(rank, world_size, master_port, backend):
     os.environ["MASTER_PORT"] = str(master_port)
     init_process_group(backend, rank=rank, world_size=world_size)
 
-
+#! should de deprecated but can be used for DDP training in Trainer
 def train(
     device,
     datamodule,
@@ -1047,10 +1017,11 @@ def get_device_from_config(config):
 
 @hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
 def main(cfg: DictConfig):
-    LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
+    # LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
     device = get_device_from_config(cfg)
-    trainer = Trainer(name='transformers_testing', cfg=cfg, device=device)
+    trainer = Trainer(name='transformers_testing', cfg=cfg, device=device) # type: ignore
     trainer.train(cfg.trainer.max_epochs)
+    sys.exit()
 
 
 

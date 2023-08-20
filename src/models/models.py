@@ -94,14 +94,16 @@ class EmbeddingModel(nn.Module):
         return model        
 
     
-    def forward(self, x, permute_dims=True):
+    def forward(self, x, permute_dims=True, fp16=True):
         (rgb, metadata), (flow, _) = x
         narration = metadata['narration']
         rgb_feats = self.rgb_model(rgb)
         flow_feats = self.flow_model(flow)
-        narration_feats = self.narration_model(narration)
-
+        narration_feats = self.narration_model(narration).to(flow_feats.device)
         feats = torch.hstack([rgb_feats, flow_feats, narration_feats]).unsqueeze(1)
+        # print(f'feats type = {type(feats)}, narration_feats type = {type(narration_feats)}, rgb_feats type = {type(rgb_feats)}')
+        if fp16:
+            feats = feats.to(torch.float16)
         # feats = feats[:, None, :].to(torch.float32)
         feats = self.linear_layer(feats)
         return feats.permute((0, 2, 1)) if permute_dims else feats
@@ -130,11 +132,13 @@ class HaarModel(nn.Module):
         trg_mask = torch.tril(torch.ones(trg_len, trg_len))
         return trg_mask.to(self.device)
     
-    def forward(self, x):
+    def forward(self, x, fp16=True):
         (rgb, _), (_, _) = x
         N = rgb.shape[0]
-        feats = self.feature_model(x, permute_dims=False)
+        feats = self.feature_model(x, permute_dims=False, fp16=fp16)
         target_mask = self._get_target_mask(feats)
+        if fp16:
+            target_mask = target_mask.to(torch.float16)
         feats = self.transformer(feats, feats, tgt_mask=target_mask) #? replace target with verb_map embeddings?
         feats = feats.reshape((N, -1))
         return self.fc_out(feats)

@@ -35,9 +35,9 @@ class TestModel(nn.Module):
     
 def main():
     training_data = datasets.MNIST(
-        root='../../data',
+        root='data',
         train=True,
-        download=False,
+        download=True,
         transform=Compose(
             [
                 ToTensor(),
@@ -46,9 +46,9 @@ def main():
         )
     )
     test_data = datasets.MNIST(
-        root='../../data',
+        root='data',
         train=False,
-        download=False,
+        download=True,
         transform=Compose(
             [
                 ToTensor(),

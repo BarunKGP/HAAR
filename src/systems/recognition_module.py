@@ -27,7 +27,7 @@ from torch.utils.tensorboard import SummaryWriter
 from constants import NUM_NOUNS, NUM_VERBS, DEFAULT_OPT, DEFAULT_ARGS, RECOG_LOGNAME
 from models.tsm import TSM
 from models.models import AttentionModel, WordEmbeddings
-from frame_loader import FrameLoader
+# from frame_loader import FrameLoader
 from systems.data_module import EpicActionRecognitionDataModule
 from systems.samplers import DistributedEvalSampler
 from utils import ActionMeter, get_device, get_loggers, write_pickle, log_print, strip_model_prefix
@@ -79,7 +79,7 @@ def load_model(cfg: DictConfig, modality: str, output_dim: int = 0, device="cpu"
             raise ValueError(f"Unknown model type {cfg.model.type!r}")
 
         if cfg.model.get("weights", None) is not None:
-            if cfg.model.pretrained is not "None":
+            if cfg.model.pretrained != "None":
                 LOG.warning(
                     f"model.pretrained was set to {cfg.model.pretrained!r} but "
                     f"you also specified to load weights from {cfg.model.weights}."
