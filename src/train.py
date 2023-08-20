@@ -39,36 +39,48 @@ LOG = get_loggers(__name__, filename=TRAIN_LOGNAME)
 # writer = SummaryWriter("data/pilot-01/runs_2")
 
 
-class Trainer():
-    def __init__(self, name, cfg, device='cpu'):
+class Trainer:
+    def __init__(self, name, cfg, device):
         self.cfg = cfg
         self.name = name
         self.device = device
-        
+
         # initialize systems
         datamodule = EpicActionRecognitionDataModule(cfg)
         self.train_loader = datamodule.train_dataloader()
         self.val_loader = datamodule.val_dataloader()
         # self.test_loader = datamodule.test_dataloader()
         self.loggers = self._init_loggers()
-        self.early_stopping = cfg.trainer.get('early_stopping', None)
-        self.use_amp = False if cfg.trainer.get('precision', 'full') == 'full' else True
+        self.early_stopping = cfg.trainer.get("early_stopping", None)
+        self.use_amp = False if cfg.trainer.get("precision", "full") == "full" else True
         # self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
 
-        self.model = HaarModel(cfg, cfg.model.transformer.dropout, device, cfg.model.get('linear_out', NUM_VERBS))
+        self.model = HaarModel(
+            cfg,
+            cfg.model.transformer.dropout,
+            device,
+            cfg.model.get("linear_out", NUM_VERBS),
+        )
         self.optimizer = self.get_optimizer()
         self.loss = self.get_loss_fn()
         self.cls_head = nn.Softmax(dim=-1)
 
-        LOG = self.loggers['logger']
+        LOG = self.loggers["logger"]
         create_snapshot_paths(Path(cfg.model.save_path), logger=LOG)
-        LOG.info('Models initialized\n' + str(self.model))
-        LOG.info(f'Trainable parameters = {sum([p.numel() for p in self.model.parameters() if p.requires_grad])}')
-        
-        self.accelerator = Accelerator(gradient_accumulation_steps=self.cfg.trainer.get('gradient_accumulation_steps', 1))
+        LOG.info("Models initialized\n" + str(self.model))
+        LOG.info(
+            f"Trainable parameters = {sum([p.numel() for p in self.model.parameters() if p.requires_grad])}"
+        )
+
+        self.accelerator = Accelerator(
+            gradient_accumulation_steps=self.cfg.trainer.get(
+                "gradient_accumulation_steps", 1
+            ),
+            project_dir=self.cfg.model.save_loc,
+        )
         # if self.accelerator is not None:
         # self.device = self.accelerator.device
-                
+
         # self.train_map = {
         #     'single': partial(self._train, cfg.trainer.max_epochs),
         #     'accelerate': partial(self._accelerate_train, cfg.trainer.max_epochs),
@@ -76,28 +88,26 @@ class Trainer():
         # }
         #! debug
         # LOG.info(f'self.device = {self.device}') # type: ignore
-        
-
 
     def _init_loggers(self):
-        tb_loc = self.cfg.trainer.get('tb_runs', False)
+        tb_loc = self.cfg.trainer.get("tb_runs", False)
         tb_writer = None
         if tb_loc:
             os.makedirs(tb_loc, exist_ok=True)
             tb_writer = SummaryWriter(tb_loc)
-    
-        logger_name = self.name + ':' + __name__
-        logger_filename = self.cfg.trainer.get('logfile', TRAIN_LOGNAME)
+
+        logger_name = self.name + ":" + __name__
+        logger_filename = self.cfg.trainer.get("logfile", TRAIN_LOGNAME)
 
         return {
             "logger": get_loggers(logger_name, logger_filename),
             "tb_writer": tb_writer,
         }
-    
+
     def get_loss_fn(self):
         return nn.CrossEntropyLoss(
-            label_smoothing=self.cfg.trainer.loss_fn.args.get('label_smoothing', 0)
-        )   
+            label_smoothing=self.cfg.trainer.loss_fn.args.get("label_smoothing", 0)
+        )
 
     def get_optimizer(self):
         assert self.model is not None, "model not assigned"
@@ -118,17 +128,28 @@ class Trainer():
         return optimizer_map[opt_key](**args)
 
     def _distributed_setup(self) -> None:
-        if self.cfg.trainer.gpu_training.type.lower() in ['single', 'none']:
+        if self.cfg.trainer.gpu_training.type.lower() in ["single", "none"]:
             return None
-        elif self.cfg.trainer.gpu_training.type.lower() == 'accelerate':
+        elif self.cfg.trainer.gpu_training.type.lower() == "accelerate":
             # accelerator = Accelerator(gradient_accumulation_steps=self.cfg.trainer.get('gradient_accumulation_steps', 1))
-            self.train_loader, self.val_loader, self.model, self.optimizer = self.accelerator.prepare(
+            (
+                self.train_loader,
+                self.val_loader,
+                self.model,
+                self.optimizer,
+            ) = self.accelerator.prepare(
                 self.train_loader, self.val_loader, self.model, self.optimizer
             )
-        elif self.cfg.trainer.gpu_training.type.lower() == 'ddp':
-            set_env_ddp(nccl_p2p_disable=self.cfg.trainer.gpu_training.args.get('nccl_p2p_disable', '0'))
+        elif self.cfg.trainer.gpu_training.type.lower() == "ddp":
+            set_env_ddp(
+                nccl_p2p_disable=self.cfg.trainer.gpu_training.args.get(
+                    "nccl_p2p_disable", "0"
+                )
+            )
         else:
-            raise Exception("Invalid GPU training strategy. Please choose among [single, accelerate, ddp, None]")
+            raise Exception(
+                "Invalid GPU training strategy. Please choose among [single, accelerate, ddp, None]"
+            )
 
     def _run_ddp(self, ddp_fn, fn_args):
         ddp_args = self.cfg.trainer.gpu_training.args
@@ -136,7 +157,7 @@ class Trainer():
         mp.spawn(
             ddp_fn,
             args=(fn_args),
-            nprocs = ddp_args.nprocs,
+            nprocs=ddp_args.nprocs,
             join=True,
         )
 
@@ -144,45 +165,54 @@ class Trainer():
         self.accelerator.backward(loss)
         self.optimizer.step()
         self.optimizer.zero_grad(set_to_none=True)
-        
+
         # # self.scaler.scale(loss)
         # if self.use_amp:
         # # if self.accelerator is not None:
         #     self.accelerator.backward(self.scaler.scale(loss))
-        #     self.scaler.step(self.optimizer)   
+        #     self.scaler.step(self.optimizer)
         #     self.scaler.update()
         # else:
         #     self.accelerator.backward(loss)
         #     self.optimizer.step()
         # self.optimizer.zero_grad(set_to_none=True)
 
-    def write_to_tensorboard(self, tb_writer, func_name, args, on_main_process=True, gpu_train_type='accelerate'):
+    def write_to_tensorboard(
+        self,
+        tb_writer,
+        func_name,
+        args,
+        on_main_process=True,
+        gpu_train_type="accelerate",
+    ):
         if tb_writer is None:
             return
-        
+
         tb_function = getattr(tb_writer, func_name)
         if on_main_process:
-            if gpu_train_type == 'accelerate':
+            if gpu_train_type == "accelerate":
                 state = AcceleratorState()
                 if state.is_main_process:
                     return tb_function(*args)
-            elif gpu_train_type == 'ddp':
+            elif gpu_train_type == "ddp":
                 if dist.get_rank() == 0:
                     return tb_function(*args)
-        
+
         return tb_function(*args)
-    
-    def compute_accuracy(self, logits, labels , distributed=False):
+
+    def compute_accuracy(self, logits, labels, distributed=True):
         y = torch.argmax(self.cls_head(logits), dim=-1)
         if distributed:
-            accurate_preds = self.accelerator.gather(y) == self.accelerator.gather(labels)
+            accurate_preds = self.accelerator.gather(y) == self.accelerator.gather(
+                labels
+            )
         else:
-            accurate_preds = (y == labels)
+            accurate_preds = y == labels
         return accurate_preds
 
-    def train(self, num_epochs, validate_strategy='epoch') -> None:
-        ''' Launches the training loop. Based on the config provided, 
-        it uses either HuggingFace Accelerate or PytTorch DDP to 
+    def train(self, num_epochs, validate_strategy="epoch", hparam_opt=False) -> None:
+        """Launches the training loop. Based on the config provided,
+        it uses either HuggingFace Accelerate or PytTorch DDP to
         perform distributed training and inference.
 
         __args__
@@ -190,42 +220,38 @@ class Trainer():
             validate_strategy (str): whether to validate after a
                 certain number of steps or after each epoch. Defaults
                 to 'epoch'
-        
-        '''
-        #* Determine GPU training strategy
+
+        """
+        # * Determine GPU training strategy
         gpu_strategy = self.cfg.trainer.gpu_training.type
-        if gpu_strategy == 'single':
+        if gpu_strategy == "single":
             self.model.to(self.device)
-        elif gpu_strategy == 'accelerate':
+        elif gpu_strategy == "accelerate":
             assert self.accelerator is not None, "Accelerator is not initialized"
             self.device = self.accelerator.device
-        #TODO elif gpu_strategy == 'ddp':
+        # TODO elif gpu_strategy == 'ddp':
         #     self._run_ddp(train_ddp, fn_args)
-
-        # #* Launch training function
-        # train_fn = self.train_map[gpu_strategy]
-        # return train_fn(validate_strategy=validate_strategy)
         
-        # Updated train function (def _train() )
         #! DEPRECATED
-        if validate_strategy == 'steps':
-            assert 'val_every_n_steps' in self.cfg.trainer.validate, \
-            'Please specify the validation interval in the config file'
-        
+        if validate_strategy == "steps":
+            assert (
+                "val_every_n_steps" in self.cfg.trainer.validate
+            ), "Please specify the validation interval in the config file"
+
         # Prepare for model training
-        tb_writer = self.loggers['tb_writer']
-        LOG = self.loggers['logger']
+        tb_writer = self.loggers["tb_writer"]
+        LOG = self.loggers["logger"]
         log_n_steps = self.cfg.trainer.log_every_n_steps
-        val_n_steps = None if validate_strategy == 'epoch' else self.cfg.trainer.validate.val_every_n_steps
+        val_n_steps = (
+            None
+            if validate_strategy == "epoch"
+            else self.cfg.trainer.validate.val_every_n_steps
+        )
         val_loss_history, val_acc_history = [], []
 
-        precision = self.cfg.trainer.get('precision', 'full')
-        scale_map = {
-            'fp16': torch.float16,
-            'bf16': torch.bfloat16,
-            'full': torch.float32,
-        }
-        
+
+
+
         LOG.info("Starting training with config\n" + OmegaConf.to_yaml(self.cfg))
         self.model.train()
         if self.accelerator is not None:
@@ -233,74 +259,97 @@ class Trainer():
 
         # helper function
         def _train_helper(batch):
-            ''' Helper function that executes the core training
-            loop in all training environments. Can be combined 
+            """Helper function that executes the core training
+            loop in all training environments. Can be combined
             with gradient accumulation in accelerate
 
             __args__
                 batch: current training batch
-            '''
-            labels = batch[0][1]['verb_class']
+            """
+            labels = batch[0][1]["verb_class"]
             logits = self.model(batch, fp16=self.use_amp)
             loss = self.loss(logits, labels)
             self._backprop(loss)
             return loss.item(), self.compute_accuracy(logits, labels)
-            
+
         def accelerate_debug():
-            self.accelerator.print('Model named parameters:')
+            self.accelerator.print("Model named parameters:")
             for name, param in self.model.named_parameters():
                 if param.requires_grad:
                     self.accelerator.print(name, param.shape, param.dtype)
-            
-        
+
         self._distributed_setup()
         accelerate_debug()
-        
+
+        # if hparam_opt:
+        #     for epoch in tqdm(range(num_epochs)):
+        #     epoch_loss = 0.0
+        #     step_loss = step_acc = 0.0
+        #     num_elems = 0
+        #     correct_preds = 0
+        #     for i, batch in tqdm(
+        #         enumerate(self.train_loader), total=len(self.train_loader)
+        #     ):
+        #         # if self.accelerator is not None:
+        #         with self.accelerator.accumulate(self.model):
+        #             loss, accurate_preds = _train_helper(batch)
+        #             step_loss += loss
+        #             correct_preds += accurate_preds.long().sum().item()  # type: ignore
+        #             num_elems += accurate_preds.shape[0]  # type: ignore
+
         # Training loop
         for epoch in tqdm(range(num_epochs)):
-            epoch_loss = 0.
-            step_loss = step_acc = 0.
+            epoch_loss = 0.0
+            step_loss = step_acc = 0.0
             num_elems = 0
             correct_preds = 0
-            for i, batch in tqdm(enumerate(self.train_loader), total=len(self.train_loader)):
+            for i, batch in tqdm(
+                enumerate(self.train_loader), total=len(self.train_loader)
+            ):
                 # if self.accelerator is not None:
                 with self.accelerator.accumulate(self.model):
                     loss, accurate_preds = _train_helper(batch)
                     step_loss += loss
-                    correct_preds += accurate_preds.long().sum().item() # type: ignore
-                    num_elems += accurate_preds.shape[0] # type: ignore
+                    correct_preds += accurate_preds.long().sum().item()  # type: ignore
+                    num_elems += accurate_preds.shape[0]  # type: ignore
 
                 # else:
                 #     _train_helper(batch)
-                
+
                 #! debug
                 if i == 0:
-                    print(f'First step - Loss: {step_loss:.4f} Accuracy: {step_acc:.4f}')
+                    print(
+                        f"First step - Loss: {step_loss:.4f} Accuracy: {step_acc:.4f}"
+                    )
 
-                if val_n_steps is not None and (i + 1) % val_n_steps == 0:     
+                if val_n_steps is not None and (i + 1) % val_n_steps == 0:
                     val_accuracy, val_loss = self.validate()
                     self.write_to_tensorboard(
-                        tb_writer, 
-                        func_name='add_scalar', 
-                        args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader)),
+                        tb_writer,
+                        func_name="add_scalar",
+                        args=(
+                            "Validation Accuracy (epoch)",
+                            val_accuracy,
+                            (epoch + 1) * len(self.train_loader),
+                        ),
                         gpu_train_type=gpu_strategy,
                     )
                     val_acc_history.append(val_accuracy)
                     val_loss_history.append(val_loss)
-                
+
                 # Log training progress to tensorboard
                 if (i + 1) % log_n_steps == 0:
                     avg_loss = step_loss / log_n_steps
                     # avg_acc = step_acc / log_n_steps
                     avg_acc = correct_preds / num_elems
                     epoch_loss += step_loss
-                    step_loss = step_acc = 0.
+                    step_loss = step_acc = 0.0
                     correct_preds = num_elems = 0
 
                     tb_steps = epoch * len(self.train_loader) + i + 1
                     self.write_to_tensorboard(
                         tb_writer,
-                        func_name='add_scalars',
+                        func_name="add_scalars",
                         args=(
                             "Training progress",
                             {
@@ -313,50 +362,52 @@ class Trainer():
                     )
 
             # Validation loop after each epoch
-            if validate_strategy == 'epoch':
+            if validate_strategy == "epoch":
                 val_accuracy, val_loss = self.validate()
                 self.write_to_tensorboard(
                     tb_writer,
-                    func_name='add_scalar',
-                    args=("Validation Accuracy (epoch)", val_accuracy, (epoch + 1)*len(self.train_loader)),
+                    func_name="add_scalar",
+                    args=(
+                        "Validation Accuracy (epoch)",
+                        val_accuracy,
+                        (epoch + 1) * len(self.train_loader),
+                    ),
                     gpu_train_type=gpu_strategy,
                 )
                 val_loss_history.append(val_loss)
                 val_acc_history.append(val_accuracy)
-            
+
             # Check early stopping conditions after each epoch
-            if (self.early_stopping['criterion'] == 'accuracy' and \
-                self.is_early_stopping(
-                    val_acc_history, 
-                    self.early_stopping['epochs'], 
-                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
-                    threshold_val=self.early_stopping['threshold']
-                )
+            if self.early_stopping[
+                "criterion"
+            ] == "accuracy" and self.is_early_stopping(
+                val_acc_history,
+                self.early_stopping["epochs"],
+                threshold_epochs=self.early_stopping.get("threshold_epochs", 0),
+                threshold_val=self.early_stopping["threshold"],
             ):
                 LOG.info("Early stopping threshold reached. Stopping training...")
                 return
-            
-            elif (self.early_stopping['criterion'] == 'loss' and \
-                self.is_early_stopping(
-                    val_loss_history, 
-                    self.early_stopping['epochs'], 
-                    threshold_epochs=self.early_stopping.get('threshold_epochs', 0),
-                    threshold_val=self.early_stopping['threshold']
-                )
+
+            elif self.early_stopping["criterion"] == "loss" and self.is_early_stopping(
+                val_loss_history,
+                self.early_stopping["epochs"],
+                threshold_epochs=self.early_stopping.get("threshold_epochs", 0),
+                threshold_val=self.early_stopping["threshold"],
             ):
                 LOG.info("Early stopping threshold reached. Stopping training...")
                 return
-            
-        LOG.info("Training completed!") 
-    
+
+        LOG.info("Training completed!")
+
     @torch.no_grad()
     def validate(self, distributed=True):
         self.model.eval()
-        correct_preds = 0.
-        val_loss = 0.
+        correct_preds = 0.0
+        val_loss = 0.0
         num_elems = 0
         for batch in tqdm(self.val_loader):
-            labels = batch[0][1]['verb_class']
+            labels = batch[0][1]["verb_class"]
             logits = self.model(batch)
 
             val_loss += self.loss(logits, labels).item()
@@ -370,31 +421,34 @@ class Trainer():
             #         accurate_preds = self.accelerator.gather(y) == self.accelerator.gather(labels)
             # else:
             #     pass
-            
-            correct_preds += accurate_preds.long().sum().item()    # type: ignore
-            num_elems += accurate_preds.shape[0]    # type: ignore
-        
+
+            correct_preds += accurate_preds.long().sum().item()  # type: ignore
+            num_elems += accurate_preds.shape[0]  # type: ignore
+
         val_accuracy = correct_preds / num_elems
         val_loss = val_loss / len(self.val_loader)
         # early_stopping = False
         # if (self.early_stopping['criterion'] == 'accuracy' and self.early_stopping['threshold'] < accuracy) or \
         #     (self.early_stopping['criterion'] == 'loss' and self.early_stopping['threshold'] > val_loss):
         #     early_stopping = True
-        
+
         return val_accuracy, val_loss
-    
-    def is_early_stopping(self, metrics, early_stopping_epochs, threshold_epochs=0, threshold_val=0.):
-        '''metrics should be in order
-        '''
+
+    def is_early_stopping(
+        self, metrics, early_stopping_epochs, threshold_epochs=0, threshold_val=0.0
+    ):
+        """metrics should be in order"""
         # Too few observations
-        if len(metrics) <= early_stopping_epochs or len(metrics) < threshold_epochs: 
+        if len(metrics) <= early_stopping_epochs or len(metrics) < threshold_epochs:
             return False
-        
+
         last_n_metrics = metrics[-early_stopping_epochs:]
-        prev_n_metrics = metrics[-early_stopping_epochs-1:-1]
-        if torch.allclose(prev_n_metrics, last_n_metrics) and torch.all(last_n_metrics > threshold_val):
+        prev_n_metrics = metrics[-early_stopping_epochs - 1 : -1]
+        if torch.allclose(prev_n_metrics, last_n_metrics) and torch.all(
+            last_n_metrics > threshold_val
+        ):
             return True
-        
+
         return False
 
 
@@ -413,7 +467,7 @@ def set_env_ddp(nccl_p2p_disable):
     if nccl_p2p_disable == "1":
         os.environ["NCCL_P2P_DISABLE"] = "1"
         print("Disabled P2P transfer for NCCL")
-    os.environ["TOKENIZERS_PARALLELISM"]="false"
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
     # debugging
     os.environ["NCCL_DEBUG"] = "INFO"
     os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
@@ -460,6 +514,7 @@ def ddp_setup(rank, world_size, master_port, backend):
     os.environ["MASTER_PORT"] = str(master_port)
     init_process_group(backend, rank=rank, world_size=world_size)
 
+
 #! should de deprecated but can be used for DDP training in Trainer
 def train(
     device,
@@ -503,7 +558,7 @@ def train(
         train_acc_meter = ActionMeter("train accuracy")
         for i, batch in enumerate(
             tqdm(
-                train_loader, 
+                train_loader,
                 desc=f"train_loader epoch {epoch_index + 1}/{num_epochs}",
                 total=steps_per_run,
                 leave=False,
@@ -536,7 +591,7 @@ def train(
                 # train_acc_meter.reset()
                 avg_loss = avg_acc = 0.0
                 break
-        LOG.info(f'train loss meter: {train_loss_meter.get_average_values()}')
+        LOG.info(f"train loss meter: {train_loss_meter.get_average_values()}")
         return running_loss / steps_per_run, train_acc_meter.get_average_values()
 
     def train_loop(
@@ -587,7 +642,7 @@ def train(
                 + f"\tTrain Accuracy/Val Accuracy: {train_acc:4f} / {val_acc:.4f}",
                 "info",
             )
-            log_print(LOG, f'Best val_acc = {best_val_acc}')
+            log_print(LOG, f"Best val_acc = {best_val_acc}")
             writer.add_scalars(
                 tqdm_desc + ": Loss",
                 {
@@ -802,7 +857,7 @@ def ddp_train(
             train_loss, train_acc = ddp_one_epoch(ddp_model, epoch)
             train_loss_history.append(train_loss)
             train_accuracy_history.append(train_acc)
-            
+
             # Validation
             val_loader.sampler.set_epoch(epoch)
             ddp_model.eval()
@@ -827,7 +882,9 @@ def ddp_train(
                     running_vloss += batch_loss.item()
                     val_loss_meter.update(batch_loss.item(), len(batch[0][0]))
                 # val_loss = val_loss_meter.get_average_values()
-                print(f'val_loss on rank {rank} = {val_loss_meter.get_average_values()}')
+                print(
+                    f"val_loss on rank {rank} = {val_loss_meter.get_average_values()}"
+                )
                 val_loss = running_vloss / len(val_loader)
                 val_acc = val_acc_meter.get_average_values()
                 validation_loss_history.append(val_loss)
@@ -1002,29 +1059,28 @@ def ddp_shutdown():
     destroy_process_group()
     # writer.close()
 
+
 def get_device_from_config(config):
-    if 'gpu_training' not in config.trainer:
-        return torch.device('cpu')
+    if "gpu_training" not in config.trainer:
+        return torch.device("cpu")
     training_type = config.trainer.gpu_training.type
-    if training_type == 'None':
-        return torch.device('cpu')
-    elif training_type == 'single':
+    if training_type == "None":
+        return torch.device("cpu")
+    elif training_type == "single":
         return torch.device(config.trainer.gpu_training.args.device_id)
-    elif training_type == 'accelerate':
+    elif training_type == "accelerate":
         return None
     else:
         raise Exception("Incorrect config mapping")
+
 
 @hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
 def main(cfg: DictConfig):
     # LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
     device = get_device_from_config(cfg)
-    trainer = Trainer(name='transformers_testing', cfg=cfg, device=device) # type: ignore
+    trainer = Trainer(name="transformers_testing", cfg=cfg, device=device)  # type: ignore
     trainer.train(cfg.trainer.max_epochs)
     sys.exit()
-
-
-
 
     # data_module = EpicActionRecognitionDataModule(cfg)
     # verb_path, noun_path = create_snapshot_paths(Path(cfg.model.save_path))
@@ -1038,7 +1094,7 @@ def main(cfg: DictConfig):
     #     if change_port and change_port.upper() == "Y":
     #         new_port = input("Please enter new port ")
     #         cfg.learning.ddp.master_port = new_port
-        
+
     #     print(f"Proceeding with port {cfg.learning.ddp.master_port}")
     #     system = DDPRecognitionModule(cfg)
     #     set_env_ddp(str(cfg.learning.ddp.get("nccl_p2p_disable", 1)))

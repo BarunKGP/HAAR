@@ -105,9 +105,9 @@ trainer:
     #   # nccl_p2p_disable: 1
       # device_id: 2
   validate: epoch
-  # Write metrics to tensorboard logs every X iterations
   tb_runs: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/tensorboard/transformers-2
   log_every_n_steps: 10
+
 
 defaults:
   - override hydra/job_logging: colorlog
