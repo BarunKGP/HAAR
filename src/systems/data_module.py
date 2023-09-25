@@ -3,12 +3,20 @@ from pathlib import Path
 from typing import Union
 from omegaconf import DictConfig
 
-from datasets.epic_dataset import EpicVideoDataset, EpicVideoFlowDataset
-from datasets.tsn_dataset import TsnDataset
-from datasets.haar_dataset import HaarDataset
+try:
+    from datasets.epic_dataset import EpicVideoDataset, EpicVideoFlowDataset
+    from datasets.tsn_dataset import TsnDataset
+    from datasets.haar_dataset import HaarDataset
+except ModuleNotFoundError or ImportError:
+    import sys
+    import os
+    sys.path.append(os.path.join(sys.path[0], '../'))
+    from datasets.epic_dataset import EpicVideoDataset, EpicVideoFlowDataset
+    from datasets.tsn_dataset import TsnDataset
+    from datasets.haar_dataset import HaarDataset
+
 from torchvision.transforms import Compose
 from torch.utils.data import ConcatDataset, DataLoader
-from mp_utils import prepare_distributed_sampler
 from torch.utils.data.distributed import DistributedSampler
 from transforms import (
     ExtractTimeFromChannel,
@@ -133,7 +141,7 @@ class EpicActionRecognitionDataModule(object):
                     ),
                 ]
             )
-        dataset = HaarDataset(rgb_dataset, flow_dataset)
+        dataset = HaarDataset(rgb_dataset, flow_dataset)    # type: ignore
         LOG.info(f"Training dataset size: {len(dataset)}")
 
         if self.ddp:
@@ -146,14 +154,7 @@ class EpicActionRecognitionDataModule(object):
                 pin_memory=self.cfg.data.pin_memory,
                 sampler=DistributedSampler(dataset, shuffle=True),
             )
-            # return prepare_distributed_sampler(
-            #     dataset=dataset,
-            #     rank=rank,
-            #     world_size=self.cfg.learning.ddp.world_size,
-            #     batch_size=self.cfg.learning.batch_size,
-            #     num_workers=self.cfg.data.worker_count,
-            #     pin_memory=self.cfg.data.pin_memory,
-            # )
+           
         return DataLoader(
             dataset=dataset,
             batch_size=self.cfg.learning.batch_size,
@@ -192,15 +193,7 @@ class EpicActionRecognitionDataModule(object):
                 pin_memory=self.cfg.data.pin_memory,
                 sampler=DistributedEvalSampler(dataset),
             )
-            # assert rank is not None, "rank must be specified for DDP."
-            # return prepare_distributed_sampler(
-            #     dataset=dataset,
-            #     rank=rank,
-            #     world_size=self.cfg.learning.ddp.world_size,
-            #     batch_size=self.cfg.learning.batch_size,
-            #     num_workers=self.cfg.data.worker_count,
-            #     pin_memory=self.cfg.data.pin_memory,
-            # )
+         
         return DataLoader(
             dataset=dataset,
             batch_size=self.cfg.learning.val_batch_size,

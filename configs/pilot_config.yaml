@@ -1,5 +1,9 @@
 seed: 42
-
+job_name: 'hparam-tune-1' 
+    # {
+    # 'tune-1': "Changed lr to 1e-4", 
+    # 'tune-1': "Changed lr to 1e-5", 
+    # }
 data:
   frame_count: 32
   _root_gulp_dir: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/gulp
@@ -46,7 +50,7 @@ model:
   weights: 
     rgb: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_rgb.ckpt
     flow: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_flow.ckpt
-  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/train_run_zatopek/temp_transformer
+  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-hparam/train_run_zatopek/transformer
   dropout: 0.7
   partial_bn: yes
   shift_div: 8
@@ -70,7 +74,7 @@ learning:
     type: AdamW
     args:
       weight_decay: 5e-6
-  lr: 3e-4
+  lr: 1e-4
   # lr_scheduler:
   #   type: ReduceLROnPlateau
   #   args:
@@ -84,7 +88,7 @@ trainer:
   verb: True
   noun: True
   # gradient_clip_val: 20
-  max_epochs: 100
+  max_epochs: 10
   early_stopping:
     criterion: accuracy
     epochs: 10
@@ -105,9 +109,22 @@ trainer:
     #   # nccl_p2p_disable: 1
       # device_id: 2
   validate: epoch
-  tb_runs: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-02/tensorboard/transformers-2
+  tb_runs: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot_hparam/tensorboard/transformer
   log_every_n_steps: 10
-
+  # hparams:
+  #   checkpoint_interval: 3    # epochs after which checpointing will be done during HPO
+  #   stop:
+  #     mean_accuracy: 0.85
+  #     max_epochs: 12
+  #   param_space:
+  #     - lr:    # equivalent to lr = ray.tune.uniform(lower, upper)
+  #         _target_: ray.tune.uniform
+  #         lower: 1e-6,
+  #         upper: 1e-3
+  #     - weight_decay:
+  #         _target_: ray.tune.uniform
+  #         lower: 1e-6,
+  #         upper: 1e-4
 
 defaults:
   - override hydra/job_logging: colorlog

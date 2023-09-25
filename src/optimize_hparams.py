@@ -4,19 +4,25 @@ from ray.air import session, Checkpoint
 from ray.tune.schedulers import PopulationBasedTraining
 
 from tqdm import tqdm
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
+from omegaconf import OmegaConf
+from hydra import compose, initialize
+from hydra.utils import instantiate
 
 from train import Trainer
 
 
+initialize(config_path='../configs', version_base=None)
+cfg = compose(config_name='pilot_config')
+
 def train_model(config):
     step = 1
-    trainer = Trainer("hparams_run", config, device=None)
-    use_amp = False if config.trainer.get("precision", "full") == "full" else True
+    trainer = Trainer("hparams_run", cfg, device=None)
+    use_amp = False if cfg.trainer.get("precision", "full") == "full" else True
     optimizer = trainer.optimizer
     accelerator = trainer.accelerator
     model = trainer.model
-    loss = trainer.get_loss_fn()
+    loss_fn = trainer.get_loss_fn()
     train_loader = trainer.val_loader  # ? do HPO on val dataset for compute efficiency
 
     train_loader, model, optimizer = accelerator.prepare(train_loader, model, optimizer)
@@ -37,15 +43,16 @@ def train_model(config):
     correct_preds = num_elems = loss = 0
     while True:
         for batch in tqdm(train_loader, total=len(train_loader)):
-            labels = batch[0][1]["verb_class"]
-            logits = model(batch, fp16=use_amp)
-            loss += loss(logits, labels).item()
-            accurate_preds = trainer.compute_accuracy(logits, labels)
-            correct_preds += accurate_preds.long().sum().item()  # type: ignore
-            num_elems += accurate_preds.shape[0]  # type: ignore
+            with accelerator.accumulate(model):
+                labels = batch[0][1]["verb_class"]
+                logits = model(batch, fp16=use_amp)
+                loss += loss_fn(logits, labels).item()
+                accurate_preds = trainer.compute_accuracy(logits, labels)
+                correct_preds += accurate_preds.long().sum().item()  # type: ignore
+                num_elems += accurate_preds.shape[0]  # type: ignore
 
-        # checkpoint = None
-        if (step + 1) % config.trainer.hparams.checkpoint_interval == 0:
+        checkpoint = None
+        if (step + 1) % cfg.trainer.hparams.checkpoint_interval == 0:
             accuracy = correct_preds / num_elems
             accelerator.save_state("hparams")
             checkpoint = Checkpoint.from_dict(
@@ -57,7 +64,7 @@ def train_model(config):
                 {
                     "mean_accuracy": accuracy,
                     "loss": loss / (step + 1) * len(train_loader),
-                    "lr": config.learning.lr,
+                    "lr": config["lr"],
                 },
                 checkpoint=checkpoint,
             )
@@ -65,7 +72,7 @@ def train_model(config):
 
 
 # Configure and run tuner for PBT
-perturbation_interval = 5
+perturbation_interval = 3
 scheduler = PopulationBasedTraining(
     time_attr="training_iteration",
     perturbation_interval=perturbation_interval,
@@ -80,16 +87,24 @@ scheduler = PopulationBasedTraining(
 if ray.is_initialized():
     ray.shutdown()
 ray.init()
+print("Initialized ray workers")
+
+hparam_cfg = cfg.trainer.hparams
+param_space = { 'checkpoint_interval': perturbation_interval }
+for key in hparam_cfg.get('param_space', {}):
+    param_space[key] = instantiate(hparam_cfg[key])
+
+assert param_space['checkpoint_interval'] == perturbation_interval, "We recommend matching checkpoint_interval with perturbation_interval from the PBT config. This ensures that the PBT algorithm actually exploits the trials in the most recent iteration."
 
 tuner = tune.Tuner(
     train_model,
     run_config=air.RunConfig(
         name="pbt_test",
-        stop={"mean_accuracy": 0.85, "training_iteration": 10},
+        stop={"mean_accuracy": hparam_cfg.stop.mean_accuracy, "training_iteration": hparam_cfg.stop.max_epochs},
         verbose=1,
         checkpoint_config=air.CheckpointConfig(
             checkpoint_score_attribute="mean_accuracy",
-            num_to_keep=4,
+            num_to_keep=3,
         ),
         storage_path="data/hparam/ray_results",
     ),
@@ -97,11 +112,12 @@ tuner = tune.Tuner(
         scheduler=scheduler,
         num_samples=4,
     ),
-    param_space={
-        "lr": tune.uniform(1e-6, 1e-3),
-        "weight_decay": tune.uniform(1e-6, 1e-4),
-        "checkpoint_interval": perturbation_interval,
-    },
+    param_space=param_space,
+    # param_space={
+    #     "lr": tune.uniform(1e-6, 1e-3),
+    #     "weight_decay": tune.uniform(1e-6, 1e-4),
+    #     "checkpoint_interval": perturbation_interval,
+    # },
 )
 
 results_grid = tuner.fit()

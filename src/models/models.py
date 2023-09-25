@@ -23,7 +23,7 @@ class WordEmbeddings(nn.Module):
         return torch.from_numpy(embeddings)
 
 class EmbeddingModel(nn.Module):
-    def __init__(self, cfg, dropout, device, embed_size=WORD_EMBEDDING_SIZE, n_conv=100):
+    def __init__(self, cfg, dropout, device, embed_size=WORD_EMBEDDING_SIZE, n_conv=100, dim_size=MULTIMODAL_FEATURE_SIZE):
         super().__init__()
         self.device = device
         self.cfg = cfg
@@ -34,7 +34,7 @@ class EmbeddingModel(nn.Module):
             nn.Conv1d(in_channels=1, out_channels=n_conv, kernel_size=3),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(MULTIMODAL_FEATURE_SIZE, embed_size),
+            nn.Linear(dim_size, embed_size),
         )
 
 

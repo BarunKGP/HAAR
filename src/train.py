@@ -5,8 +5,9 @@ import os
 from omegaconf import DictConfig, OmegaConf
 import hydra
 from tqdm import tqdm
-import pprint
-from sklearn.metrics import accuracy_score
+import numpy as np
+# import pprint
+# from sklearn.metrics import accuracy_score
 
 import torch
 import torch.distributed as dist
@@ -30,7 +31,6 @@ from utils import (
     get_loggers,
     log_print,
     write_pickle,
-    close_logger,
 )
 from constants import NUM_VERBS, TRAIN_LOGNAME, DEFAULT_ARGS, DEFAULT_OPT
 
@@ -76,7 +76,7 @@ class Trainer:
             gradient_accumulation_steps=self.cfg.trainer.get(
                 "gradient_accumulation_steps", 1
             ),
-            project_dir=self.cfg.model.save_loc,
+            project_dir=self.cfg.model.save_path,
         )
         # if self.accelerator is not None:
         # self.device = self.accelerator.device
@@ -203,9 +203,7 @@ class Trainer:
     def compute_accuracy(self, logits, labels, distributed=True):
         y = torch.argmax(self.cls_head(logits), dim=-1)
         if distributed:
-            accurate_preds = self.accelerator.gather(y) == self.accelerator.gather(
-                labels
-            )
+            accurate_preds = self.accelerator.gather(y) == self.accelerator.gather(labels)
         else:
             accurate_preds = y == labels
         return accurate_preds
@@ -250,14 +248,12 @@ class Trainer:
         val_loss_history, val_acc_history = [], []
 
 
-
-
         LOG.info("Starting training with config\n" + OmegaConf.to_yaml(self.cfg))
         self.model.train()
         if self.accelerator is not None:
             self.model.device = self.accelerator.device
-
-        # helper function
+        
+        
         def _train_helper(batch):
             """Helper function that executes the core training
             loop in all training environments. Can be combined
@@ -1077,6 +1073,9 @@ def get_device_from_config(config):
 @hydra.main(config_path="../configs", config_name="pilot_config", version_base=None)
 def main(cfg: DictConfig):
     # LOG.info("Config:\n" + OmegaConf.to_yaml(cfg))
+    torch.manual_seed(cfg.seed)
+    np.random.seed(cfg.seed)
+
     device = get_device_from_config(cfg)
     trainer = Trainer(name="transformers_testing", cfg=cfg, device=device)  # type: ignore
     trainer.train(cfg.trainer.max_epochs)
