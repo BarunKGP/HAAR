@@ -1,24 +1,29 @@
-name: haar
+name: haar-trnsfmr
 channels:
-  - pytorch
+  # - pytorch-nightly
+  - nvidia
   - defaults
 dependencies:
-  - python==3.8.5
-  - cudatoolkit
+  - python==3.10
+  # - cudatoolkit
   - numpy
   - opencv
-  - pip==20.2.2=py38_0
+  - pip
   - matplotlib
   - pandas
   - jupyter
   - pytest
-  - pytorch<=1.12.0
-  - torchvision
+  # Download pytorch as pip wheels
+  # - pytorch
+  # - torchvision
+  # - pytorch-cuda=12.1 
   - pip:
     - pillow
     - ftfy
     - regex
     - sentence-transformers
+    - accelerate
+    - tensorboard
     - einops
     - natsort
     - gulpio2

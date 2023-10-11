@@ -4,16 +4,16 @@ from typing import Union
 from omegaconf import DictConfig
 
 try:
-    from datasets.epic_dataset import EpicVideoDataset, EpicVideoFlowDataset
-    from datasets.tsn_dataset import TsnDataset
-    from datasets.haar_dataset import HaarDataset
-except ModuleNotFoundError or ImportError:
+    from data_sets.epic_dataset import EpicVideoDataset, EpicVideoFlowDataset
+    from data_sets.tsn_dataset import TsnDataset
+    from data_sets.haar_dataset import HaarDataset
+except (ModuleNotFoundError, ImportError):
     import sys
     import os
     sys.path.append(os.path.join(sys.path[0], '../'))
-    from datasets.epic_dataset import EpicVideoDataset, EpicVideoFlowDataset
-    from datasets.tsn_dataset import TsnDataset
-    from datasets.haar_dataset import HaarDataset
+    from data_sets.epic_dataset import EpicVideoDataset, EpicVideoFlowDataset
+    from data_sets.tsn_dataset import TsnDataset
+    from data_sets.haar_dataset import HaarDataset
 
 from torchvision.transforms import Compose
 from torch.utils.data import ConcatDataset, DataLoader
@@ -99,7 +99,7 @@ class EpicActionRecognitionDataModule(object):
 
     def train_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.frame_count
-        LOG.info(f"Training dataset: frame count {frame_count}")
+        # LOG.info(f"Training dataset: frame count {frame_count}")
 
         rgb_dataset = TsnDataset(
             self._get_video_dataset(self.train_gulp_dir["rgb"], modality="rgb"),
@@ -165,7 +165,7 @@ class EpicActionRecognitionDataModule(object):
 
     def val_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.frame_count
-        LOG.info(f"Validation dataset: frame count {frame_count}")
+        # LOG.info(f"Validation dataset: frame count {frame_count}")
         dataset = HaarDataset(
             TsnDataset(
                 self._get_video_dataset(self.val_gulp_dir["rgb"], modality="rgb"),
@@ -204,7 +204,7 @@ class EpicActionRecognitionDataModule(object):
 
     def test_dataloader(self, rank: Union[None, int] = None):
         frame_count = self.cfg.data.get("test_frame_count", self.cfg.data.frame_count)
-        LOG.info(f"Test dataset: frame count {frame_count}")
+        # LOG.info(f"Test dataset: frame count {frame_count}")
         dataset = HaarDataset(
             TsnDataset(
                 self._get_video_dataset(self.test_gulp_dir["rgb"], modality="rgb"),

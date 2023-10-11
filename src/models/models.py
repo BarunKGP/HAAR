@@ -1,45 +1,102 @@
+"""
+Multimodal action recognition models.
+
+@author Barun Das <barun.das.23@gmail.com>
+"""
+
+from typing import Iterable
 import torch
-import torch.nn as nn
+from torch import nn as nn
+from sentence_transformers import SentenceTransformer
 from constants import (
     MULTIMODAL_FEATURE_SIZE,
+    NUM_NOUNS,
+    NUM_VERBS,
     SENTENCE_TRANSFORMER_MODEL,
     WORD_EMBEDDING_SIZE,
 )
-from sentence_transformers import SentenceTransformer
 from utils import get_loggers, strip_model_prefix, vector_gather
 from models.tsm import TSM
 
 LOG = get_loggers(__name__)
 
+
 # WORD EMBEDDINGS
 class WordEmbeddings(nn.Module):
-    def __init__(self, device='cpu') -> None:
+    """ Compute sentence embeddings using Sentence Transformers
+    """
+    def __init__(self, embed_size=WORD_EMBEDDING_SIZE, device="cpu") -> None:
         super().__init__()
         self.device = device
         self.model = SentenceTransformer(SENTENCE_TRANSFORMER_MODEL)
+        if embed_size != WORD_EMBEDDING_SIZE:
+            self.fc_out = nn.Linear(WORD_EMBEDDING_SIZE, embed_size)
+        else:
+            self.fc_out = None
 
     def forward(self, text):
-        embeddings = self.model.encode(text)
-        return torch.from_numpy(embeddings)
+        embeddings = self.model.encode(text, convert_to_tensor=True)
+        return embeddings if self.fc_out is None else self.fc_out(embeddings)
+        # return torch.from_numpy(embeddings)
+
 
 class EmbeddingModel(nn.Module):
-    def __init__(self, cfg, dropout, device, embed_size=WORD_EMBEDDING_SIZE, n_conv=100, dim_size=MULTIMODAL_FEATURE_SIZE):
+    def __init__(
+        self,
+        cfg,
+        dropout,
+        device,
+        embed_size=WORD_EMBEDDING_SIZE,
+        n_conv=[100],
+        dim_size=MULTIMODAL_FEATURE_SIZE,
+    ):
         super().__init__()
         self.device = device
         self.cfg = cfg
         self.narration_model = self._load_narration_model()
         self.rgb_model = self._load_vision_model(modality="rgb")
         self.flow_model = self._load_vision_model(modality="flow")
+
+        # if len(bn) > 0:
+        #     layers = [
+        #         [
+        #             nn.Conv1d(ni, nc, kf, bias=False if i in bn else True),
+        #             nn.ReLU(),
+        #             nn.Dropout(dropout),
+        #         ]
+        #         for i, (ni, nc, kf) in enumerate(zip(in_feat_dim, n_conv, k_sizes))
+        #     ]
+        #     for i in bn:
+        #         layers[i].insert(2, nn.BatchNorm2d(n_conv[i]))
+
+        # else:
+        #     layers = [
+        #         [nn.Conv1d(ni, nc, kf, bias=True), nn.ReLU(), nn.Dropout(dropout),]
+        #         for ni, nc, kf in zip(in_feat_dim, n_conv, k_sizes)
+        #     ]
+
+        # self.linear_layer = nn.Sequential(*layers)
+
+        # for nc, ks in zip(n_conv, k_sizes):
+        #     layers.append()
+
         self.linear_layer = nn.Sequential(
-            nn.Conv1d(in_channels=1, out_channels=n_conv, kernel_size=3),
+            nn.Conv1d(in_channels=1, out_channels=8, kernel_size=3, bias=True),
             nn.ReLU(),
             nn.Dropout(dropout),
+            nn.Conv1d(8, 32, 5, bias=False),
+            nn.ReLU(),
+            nn.BatchNorm1d(32),
+            nn.Dropout(dropout),
+            nn.Conv1d(32, 10, 3, bias=True),
+            nn.ReLU(),
             nn.Linear(dim_size, embed_size),
         )
 
-
-    def _load_vision_model(self, modality, output_dim = 0):
-        assert self.cfg.model.type == "TSM", f"Unknown model type {self.cfg.model_type}. Only TSM models have been configured"
+    def _load_vision_model(self, modality, output_dim=0):
+        assert (
+            self.cfg.model.type == "TSM"
+        ), f"Unknown model type {self.cfg.model_type}. Only TSM models have been configured"
         model = TSM(
             num_class=output_dim if output_dim > 0 else self.cfg.model.num_class,
             num_segments=self.cfg.data.frame_count,
@@ -76,13 +133,12 @@ class EmbeddingModel(nn.Module):
                 sd["new_fc.bias"] = torch.rand(1024, requires_grad=True)
                 missing, unexpected = model.load_state_dict(sd, strict=False)
                 if len(missing) > 0:
-                    LOG.warning(f"Missing keys in checkpoint: {missing}")
+                    LOG.warning("Missing keys in checkpoint: %s", missing)
                 if len(unexpected) > 0:
-                    LOG.warning(f"Unexpected keys in checkpoint: {unexpected}")
+                    LOG.warning("Unexpected keys in checkpoint: %s", unexpected)
 
         return model
 
-    
     def _load_narration_model(self):
         model = WordEmbeddings(device=self.device)
         narr_cfg = self.cfg.model.get("narration_model", False)
@@ -91,59 +147,94 @@ class EmbeddingModel(nn.Module):
             for param in model.parameters():
                 param.requires_grad = False
 
-        return model        
+        return model
 
-    
-    def forward(self, x, permute_dims=True, fp16=True):
-        (rgb, metadata), (flow, _) = x
-        narration = metadata['narration']
+    def forward(self, rgb, flow, narration, permute_dims=True, fp16=True):
+        # (rgb, metadata), (flow, _) = x
+        # narration = metadata['narration']
         rgb_feats = self.rgb_model(rgb)
         flow_feats = self.flow_model(flow)
         narration_feats = self.narration_model(narration).to(flow_feats.device)
-        feats = torch.hstack([rgb_feats, flow_feats, narration_feats]).unsqueeze(1)
-        # print(f'feats type = {type(feats)}, narration_feats type = {type(narration_feats)}, rgb_feats type = {type(rgb_feats)}')
+        # narration_feats = torch.unsqueeze(narration_feats, 1).expand(-1, F, -1) # (B, F, word_embedding_dim)
+        # print(f'narration_feats = {narration_feats.shape}, rgb_feats = {rgb_feats.shape}, flow_feats = {flow_feats.shape} ')
+        feats = (
+            torch.hstack([rgb_feats, flow_feats, narration_feats])
+            .contiguous()
+            .unsqueeze(1)
+        )
+        # print('feats shape =', feats.shape)
         if fp16:
             feats = feats.to(torch.float16)
         # feats = feats[:, None, :].to(torch.float32)
         feats = self.linear_layer(feats)
         return feats.permute((0, 2, 1)) if permute_dims else feats
-    
+
 
 class HaarModel(nn.Module):
-    def __init__(self, cfg, dropout, device, linear_out, embed_size=WORD_EMBEDDING_SIZE, n_conv=100):
+    def __init__(
+        self,
+        cfg,
+        action_embeddings,
+        dropout,
+        device,
+        linear_out=(NUM_VERBS, NUM_NOUNS),
+        embed_size=WORD_EMBEDDING_SIZE,
+        n_conv=10,
+    ):
         super().__init__()
         # self.cfg = cfg
+        self.num_verbs, self.num_nouns = linear_out
         self.device = device
+        self.action_embeddings = action_embeddings
         self.feature_model = EmbeddingModel(cfg, dropout, device, embed_size, n_conv)
         self.transformer = nn.Transformer(
             d_model=cfg.model.transformer.d_model,
             nhead=cfg.model.transformer.nhead,
             batch_first=True,
-            dropout=dropout,
+            dropout=cfg.model.transformer.dropout,
             device=device,
         )
-        self.fc_out = nn.Sequential(
+        self.fc_out_verb = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(100*embed_size, linear_out)
+            nn.Linear(self.num_verbs * embed_size, linear_out[0])
+        )
+        self.fc_out_noun = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(self.num_nouns * embed_size, linear_out[1])
         )
 
     def _get_target_mask(self, feats):
         trg_len = feats.shape[1]
         trg_mask = torch.tril(torch.ones(trg_len, trg_len))
         return trg_mask.to(self.device)
-    
-    def forward(self, x, fp16=True):
-        (rgb, _), (_, _) = x
+
+    def forward(self, x, fp16=True, verb=True, noun=True):
+        (rgb, metadata), (flow, _) = x
         N = rgb.shape[0]
-        feats = self.feature_model(x, permute_dims=False, fp16=fp16)
-        target_mask = self._get_target_mask(feats)
+        feats = self.feature_model(
+            rgb, flow, metadata["narration"], permute_dims=False, fp16=fp16
+        )  # B, 10, d_model
+        # print('Extracted feature shape:', feats.shape)
+        
+        #* batch size must be same for src and tgt
+        target = torch.unsqueeze(self.action_embeddings, 0).expand(N, -1, -1).to(feats.device) 
+        target_mask = self._get_target_mask(target)
         if fp16:
+            target = target.to(torch.float16)
             target_mask = target_mask.to(torch.float16)
-        feats = self.transformer(feats, feats, tgt_mask=target_mask) #? replace target with verb_map embeddings?
-        feats = feats.reshape((N, -1))
-        return self.fc_out(feats)
+        
+        feats = self.transformer(feats, target, tgt_mask=target_mask)  # ? replace target with verb_map embeddings?
+        # feats = feats.reshape((N, -1))
+        # print("feats.shape =", feats.shape)
 
-
+        if verb and noun:
+            lv = self.fc_out_verb(feats[:, :self.num_verbs, :])
+            ln = self.fc_out_noun(feats[:,  self.num_verbs:, :])
+            return lv, ln
+            # return self.fc_out_verb(feats), self.fc_out_noun(feats)
+        if verb:
+            return self.fc_out_verb(feats), None
+        return None, self.fc_out_noun(feats)
 
 
 class AttentionModel(nn.Module):
@@ -158,7 +249,6 @@ class AttentionModel(nn.Module):
         )
         self.linear_layer = nn.Linear(WORD_EMBEDDING_SIZE, self.cardinality, bias=True)
         self.softmax = nn.Softmax(dim=-1)
-        
 
     def _predictions(self, frame_features, key, embeddings):
         """Takes the frame_features and returns the predictions
@@ -207,8 +297,13 @@ class AttentionModel(nn.Module):
     def _evaluate(self):
         pass
 
-
     def forward(self, x: torch.Tensor, label: int, embeddings):
         x = x[:, None, :].to(torch.float32)
         x = self.layer1(x).permute((0, 2, 1))
         return self._predictions(x, label, embeddings)
+
+
+"""
+(4, 32, 3, 224, 224)  # B, F, C, H, W
+(4, 3, 224, 224)      # B, C, H, W  temporal pooling of features
+"""

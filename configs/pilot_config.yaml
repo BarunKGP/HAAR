@@ -50,7 +50,7 @@ model:
   weights: 
     rgb: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_rgb.ckpt
     flow: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_flow.ckpt
-  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot-hparam/train_run_zatopek/transformer
+  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/exps/100723
   dropout: 0.7
   partial_bn: yes
   shift_div: 8
@@ -65,16 +65,19 @@ model:
     nhead: 8
     blocks: 6
     dropout: 0.1
-  linear_out: 97  # num_verbs (only keys)
+  linear_out: 
+    verbs: 97  # num_verbs
+    nouns: 305
 
 learning:
-  batch_size: 4
-  val_batch_size: 16
+  batch_size: 8
+  val_batch_size: 8
   optimizer:
     type: AdamW
     args:
-      weight_decay: 5e-6
-  lr: 1e-4
+      weight_decay: 0.01
+      # foreach: True
+  base_lr: 0.001
   # lr_scheduler:
   #   type: ReduceLROnPlateau
   #   args:
@@ -86,17 +89,19 @@ learning:
 
 trainer:
   verb: True
-  noun: True
+  noun: False
   # gradient_clip_val: 20
-  max_epochs: 10
+  gradient_accumulation_steps: 4
+  max_epochs: 300
   early_stopping:
     criterion: accuracy
     epochs: 10
-    threshold: 0.8
+    threshold_epochs: 10 # train 10 epochs before checking early stopping
+    threshold: 0.6
   loss_fn:
     type: CrossEntropyLoss
     args:
-      label_smoothing: 0.1
+      label_smoothing: 0
   precision: fp16
   gpu_training:
     type: "accelerate"
@@ -108,9 +113,10 @@ trainer:
     #   # master_port: 40845
     #   # nccl_p2p_disable: 1
       # device_id: 2
-  validate: epoch
-  tb_runs: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/pilot_hparam/tensorboard/transformer
-  log_every_n_steps: 10
+  validate:  # validate_strategy: steps
+    val_every_n_steps: 16
+  tb_runs: ${model.save_path}/tensorboard
+  log_every_n_steps: 8
   # hparams:
   #   checkpoint_interval: 3    # epochs after which checpointing will be done during HPO
   #   stop:

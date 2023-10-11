@@ -9,7 +9,7 @@ TEST_PICKLE = "data/test100_version_fix.pkl"  # location of pickle file to gener
 
 STRIDE = 3
 WORD_EMBEDDING_SIZE = 384
-MULTIMODAL_FEATURE_SIZE = 2430  # number of concatenated features in each feature vector
+MULTIMODAL_FEATURE_SIZE = 2424 #2430  # number of concatenated features in each feature vector
 NUM_VERBS = 97
 NUM_NOUNS = 305  # nouns_classes_v2.csv
 SENTENCE_TRANSFORMER_MODEL = "all-MiniLM-L6-v2"

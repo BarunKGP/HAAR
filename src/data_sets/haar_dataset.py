@@ -1,7 +1,7 @@
 import random
 from torch.utils.data import Dataset
 
-from datasets.tsn_dataset import TsnDataset
+from .tsn_dataset import TsnDataset
 
 
 class HaarDataset(Dataset):
