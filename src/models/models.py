@@ -202,39 +202,64 @@ class HaarModel(nn.Module):
             nn.Flatten(),
             nn.Linear(self.num_nouns * embed_size, linear_out[1])
         )
+        self.cls_head = nn.Softmax(dim=-1)
 
     def _get_target_mask(self, feats):
         trg_len = feats.shape[1]
         trg_mask = torch.tril(torch.ones(trg_len, trg_len))
-        return trg_mask.to(self.device)
+        return trg_mask.to(feats.device)
 
-    def forward(self, x, fp16=True, verb=True, noun=True):
+    def _get_task_output(self, task, logits):
+        assert task in ["default", "inference"], f"invalid task {task}"
+
+        if task == 'default':
+            return logits
+        elif task == 'inference':
+            with torch.no_grad():
+                return self.cls_head(logits).argmax(dim=-1)
+
+    def forward(self, x, task='default', fp16=True, verb=True, noun=True):
+        ''' Runs the forward pass on a batch of data
+
+        __args__
+            x: input batch
+            task='default': task to perform. Choose
+                between `default` (returns raw logits)
+                and `inference` (returns label with 
+                highest probability)
+            fp16=True: whether to use fp16 or not
+            verb=True: whether to compute verb logits
+            noun=True: whether to compute noun logits
+
+        '''
         (rgb, metadata), (flow, _) = x
         N = rgb.shape[0]
+
         feats = self.feature_model(
             rgb, flow, metadata["narration"], permute_dims=False, fp16=fp16
         )  # B, 10, d_model
-        # print('Extracted feature shape:', feats.shape)
         
-        #* batch size must be same for src and tgt
+        # batch size must be same for src and tgt
         target = torch.unsqueeze(self.action_embeddings, 0).expand(N, -1, -1).to(feats.device) 
         target_mask = self._get_target_mask(target)
         if fp16:
             target = target.to(torch.float16)
             target_mask = target_mask.to(torch.float16)
-        
-        feats = self.transformer(feats, target, tgt_mask=target_mask)  # ? replace target with verb_map embeddings?
+        # print(f'feats on {feats.device}, target on {target.device}, target mask on {target_mask.device}') 
+        feats = self.transformer(feats, target, tgt_mask=target_mask)
         # feats = feats.reshape((N, -1))
         # print("feats.shape =", feats.shape)
 
-        if verb and noun:
-            lv = self.fc_out_verb(feats[:, :self.num_verbs, :])
-            ln = self.fc_out_noun(feats[:,  self.num_verbs:, :])
-            return lv, ln
-            # return self.fc_out_verb(feats), self.fc_out_noun(feats)
+        res_noun = None
+        res_verb = None
+        if noun:
+            noun_logits = self.fc_out_noun(feats[:,  self.num_verbs:, :])
+            res_noun = self._get_task_output(task, noun_logits)
         if verb:
-            return self.fc_out_verb(feats), None
-        return None, self.fc_out_noun(feats)
+            verb_logits = self.fc_out_verb(feats[:, :self.num_verbs, :])
+            res_verb = self._get_task_output(task, verb_logits)
+        
+        return (res_verb, res_noun)
 
 
 class AttentionModel(nn.Module):

@@ -1,52 +1,52 @@
+# pylint: disable=[C0115, C0116, C0301, C0302, W0105]
+
 from functools import partial
+import math
 from pathlib import Path
-import sys
 import os
+import sys
+from typing import Tuple
 from omegaconf import DictConfig, OmegaConf
 import hydra
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import numpy as np
-
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.distributed import destroy_process_group, init_process_group
 from torch.utils.tensorboard.writer import SummaryWriter
-import torch.nn as nn
+from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import Adam, AdamW, SGD
+from torch.optim.lr_scheduler import LRScheduler
 
 from accelerate import Accelerator
 from accelerate.state import AcceleratorState
+from accelerate.logging import get_logger
+from accelerate import DistributedDataParallelKwargs
 
 from models.models import (
-    AttentionModel,
-    EmbeddingModel,
     HaarModel,
     WordEmbeddings,
-)  # pylint: disable=unused-import
+)
 from systems.recognition_module import get_word_map
 from systems.data_module import EpicActionRecognitionDataModule
-from utils import (
-    ActionMeter,
-    get_loggers,
-    log_print,
-    write_pickle,
-)
+from utils import get_loggers
 from constants import NUM_NOUNS, NUM_VERBS, TRAIN_LOGNAME, DEFAULT_ARGS, DEFAULT_OPT
 import datasets as hf_datasets
 
-LOG = get_loggers(__name__, filename=TRAIN_LOGNAME)
+LOG = get_logger(__name__)
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 class Trainer:
-    # pylint: disable=C0116
     # TODO: add save_snapshot function
     def __init__(self, name, cfg, device):
         self.cfg = cfg
         self.name = name
         self.device = device
+        self.distributed = False
 
         # initialize systems
         datamodule = EpicActionRecognitionDataModule(cfg)
@@ -58,16 +58,22 @@ class Trainer:
         self.use_amp = False if cfg.trainer.get("precision", "full") == "full" else True
         # self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
 
+        ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
         self.accelerator = Accelerator(
             gradient_accumulation_steps=self.cfg.trainer.get(
                 "gradient_accumulation_steps", 1
             ),
+            device_placement=True,
             project_dir=self.cfg.model.save_path,
+            mixed_precision=self.cfg.trainer.precision,
             log_with="tensorboard",
+            kwargs_handlers=[ddp_kwargs],
         )
+        if hf_datasets.logging.is_progress_bar_enabled():
+            self.accelerator.print("Disabling progress bars for dataset preprocessing")
+            hf_datasets.logging.disable_progress_bar()
 
         self.action_embeddings = self.get_embeddings()
-        self.accelerator.print(f"action embeddings -> {self.action_embeddings.shape}")
         self.model = HaarModel(
             cfg,
             self.action_embeddings,
@@ -79,7 +85,8 @@ class Trainer:
             ),
             embed_size=cfg.model.transformer.d_model,
         )
-        self.optimizer = self.get_optimizer()
+        self.optimizer = None #self.get_optimizer()
+        self.lr_scheduler = None #self.get_lr_scheduler()
         self.loss = self.get_loss_fn()
         self.verb_loss = self.get_loss_fn()
         self.noun_loss = self.get_loss_fn()
@@ -113,9 +120,21 @@ class Trainer:
             label_smoothing=self.cfg.trainer.loss_fn.args.get("label_smoothing", 0)
         )
 
-    def get_optimizer(self):
+    def get_lr_scheduler(self) -> LRScheduler | None:
+        if "lr_scheduler" not in self.cfg.learning:
+            return None
+        assert self.optimizer is not None, "optimizer not assigned"
+        lrs = getattr(
+            sys.modules["torch.optim.lr_scheduler"], self.cfg.learning.lr_scheduler.type
+        )
+        args = self.cfg.learning.lr_scheduler.get("args", {})
+        return lrs(self.optimizer, **args)
+
+    def get_optimizer(self, scale_lr=False):
         assert self.model is not None, "model not assigned"
         lr = self.cfg.learning.base_lr
+        if scale_lr:
+            lr = math.sqrt(self.accelerator.num_processes) * lr
         opt_params = [p for p in self.model.parameters() if p.requires_grad]
         optimizer_map = {
             "Adam": partial(Adam, opt_params, lr=lr),
@@ -129,7 +148,7 @@ class Trainer:
         else:
             opt_key = DEFAULT_OPT
             args = DEFAULT_ARGS
-        return optimizer_map[opt_key](foreach=True, **args)
+        return optimizer_map[opt_key](**args)
 
     def get_embeddings(self):
         model = WordEmbeddings(device=self.device)
@@ -153,20 +172,19 @@ class Trainer:
         if self.cfg.trainer.gpu_training.type.lower() in ["single", "none"]:
             return None
 
-        elif self.cfg.trainer.gpu_training.type.lower() == "accelerate":
+        self.distributed = True
+        if self.cfg.trainer.gpu_training.type.lower() == "accelerate":
             # accelerator = Accelerator(gradient_accumulation_steps=self.cfg.trainer.get('gradient_accumulation_steps', 1))
-            (
-                self.train_loader,
-                self.val_loader,
-                self.model,
-                self.optimizer,
-            ) = self.accelerator.prepare(
-                self.train_loader, self.val_loader, self.model, self.optimizer
-            )
-            self.accelerator.init_trackers(
-                project_name="tb",
-                # init_kwargs={'tensorboard': {'logging_dir': self.cfg.trainer.tb_runs}}
-            )
+            if self.lr_scheduler is not None:
+                self.train_loader, self.val_loader, self.model, self.optimizer, self.lr_scheduler = \
+                    self.accelerator.prepare(
+                        self.train_loader, self.val_loader, self.model, self.optimizer, self.lr_scheduler
+                    )
+            else:
+                self.train_loader, self.val_loader, self.model, self.optimizer = self.accelerator.prepare(
+                    self.train_loader, self.val_loader, self.model, self.optimizer
+                )
+            self.accelerator.init_trackers(project_name="tb")
 
         elif self.cfg.trainer.gpu_training.type.lower() == "ddp":
             set_env_ddp(
@@ -178,22 +196,25 @@ class Trainer:
         else:
             assert (
                 False
-            ), "Invalid GPU training strategy. Please choose among [single, accelerate, ddp, None]"
+            ), "Invalid GPU training strategy. Available: [single, accelerate, ddp, None]"
+
+        return None
 
     def save_snapshot(self, epoch):
         pass
 
-    def _run_ddp(self, ddp_fn, fn_args):
-        ddp_args = self.cfg.trainer.gpu_training.args
-        init_process_group(ddp_args.backend)
-        mp.spawn(
-            ddp_fn,
-            args=(fn_args),
-            nprocs=ddp_args.nprocs,
-            join=True,
-        )
+    # def _run_ddp(self, ddp_fn, fn_args):
+    #     ddp_args = self.cfg.trainer.gpu_training.args
+    #     init_process_group(ddp_args.backend)
+    #     mp.spawn(
+    #         ddp_fn,
+    #         args=(fn_args),
+    #         nprocs=ddp_args.nprocs,
+    #         join=True,
+    #     )
 
     def _backprop(self, loss):
+        assert self.optimizer is not None, "optimizer not initialized"
         self.accelerator.backward(loss)
         self.optimizer.step()
         self.optimizer.zero_grad(set_to_none=True)
@@ -232,14 +253,22 @@ class Trainer:
 
         return tb_function(*args)
 
-    def compute_accuracy(self, logits, labels, distributed=True):
-        y = torch.argmax(self.cls_head(logits), dim=-1)
+    def num_correct_preds(self, logits, labels, distributed=True):
         if distributed:
-            accurate_preds = self.accelerator.gather(y) == self.accelerator.gather(
-                labels
-            )
+            all_preds, all_labels = self.accelerator.gather_for_metrics((logits, labels))
+            return (all_preds == all_labels).long().sum().item(), len(all_preds)
+        return (logits == labels).long().sum().item(), len(logits)
+
+    #! Will probably deprecate            
+    def compute_accuracy(self, logits, labels, distributed=True):
+        # y = torch.argmax(self.cls_head(logits), dim=-1)
+        if distributed:
+            all_preds, all_labels = self.accelerator.gather_for_metrics((logits, labels))
+            return (all_preds == all_labels).long().sum().item()
         else:
-            accurate_preds = y == labels
+            batch_labels = labels
+        accurate_preds = batch_labels == logits
+        # print(accurate_preds)
         return accurate_preds
 
     def compute_loss(self, verb_logits, verb_labels, noun_logits, noun_labels):
@@ -285,22 +314,6 @@ class Trainer:
                 "val_every_n_steps" in self.cfg.trainer.validate
             ), "Please specify the validation interval in the config file"
 
-        # Prepare for model training
-        tb_writer = self.loggers["tb_writer"]
-        LOG = self.loggers["logger"]
-        log_n_steps = self.cfg.trainer.log_every_n_steps
-        val_n_steps = (
-            None
-            if validate_strategy == "epoch"
-            else self.cfg.trainer.validate.val_every_n_steps
-        )
-        val_loss_history, val_acc_history = [], []  # list of tuples
-
-        LOG.info("Starting training with config\n %s", OmegaConf.to_yaml(self.cfg))
-        self.model.train()
-        if self.accelerator is not None:
-            self.model.device = self.accelerator.device
-
         def accelerate_debug():
             self.accelerator.print("Model named parameters:")
             for name, param in self.model.named_parameters():
@@ -321,80 +334,162 @@ class Trainer:
                     LOG.info("Early stopping threshold reached for nouns.")
                     count += 1
                 if count == 2:
-                    LOG.info(
-                        "Early stopping threshold reached for both verbs and nouns. Stopping training...."
-                    )
+                    LOG.info("Stopping training....")
                     return True
-            elif self.early_stopping["criterion"] == "loss":
-                if self.is_early_stopping(val_history, *early_stop_args):
-                    LOG.info("Early stopping threshold reached. Stopping training...")
-                    return True
+            elif self.early_stopping["criterion"] == "loss" and self.is_early_stopping(
+                val_history, *early_stop_args
+            ):
+                LOG.info("Early stopping threshold reached. Stopping training....")
+                return True
 
             return False
+        
+        # * Prepare for model training
+        tb_writer = self.loggers["tb_writer"]
+        LOG = self.loggers["logger"]
+        log_n_steps = self.cfg.trainer.log_every_n_steps
+        val_n_steps = (
+            None
+            if validate_strategy == "epoch"
+            else self.cfg.trainer.validate.val_every_n_steps
+        )
+        val_loss_history, val_acc_history = [], []  # list of tuples
 
+        LOG.info("Starting training with config\n %s", OmegaConf.to_yaml(self.cfg))
+        self.model.train()
+        # if self.accelerator is not None:
+        #     self.model.device = self.accelerator.device
+
+        # self.model.to(self.accelerator.device)
+        self.optimizer = self.get_optimizer()
+        self.lr_scheduler = self.get_lr_scheduler()
+        # print(f'num process = {self.accelerator.num_processes}')
         self._distributed_setup()
-        if hf_datasets.logging.is_progress_bar_enabled():
-            self.accelerator.print("Disabling progress bars for dataset preprocessing")
-            hf_datasets.logging.disable_progress_bar()  # disable progress bars during dataset loading and processing
         # accelerate_debug()
+        # verb_metrics = evaluate.load("accuracy")
+        # noun_metrics = evaluate.load("accuracy")
+
+        @torch.no_grad()
+        def _validate() -> Tuple[float, float]:
+            num_verbs = num_nouns = 0
+            correct_preds_verbs = correct_preds_nouns = 0
+            # assert self.optimizer is not None, "optimizer not initialized"
+            for batch in tqdm(
+                self.val_loader,
+                total=len(self.val_loader),
+                disable=not self.accelerator.is_main_process,
+            ):
+                # batch.to(self.accelerator.device)
+                # self.accelerator.print('val batch on', batch[0][0].device)
+                verb_labels = batch[0][1]["verb_class"]
+                noun_labels = batch[0][1]["noun_class"]
+                preds_verbs, preds_nouns = self.model(
+                    batch,
+                    task='inference', # returns class probabilities
+                    fp16=self.use_amp,
+                    verb=self.cfg.trainer.verb,
+                    noun=self.cfg.trainer.noun,
+                )
+                
+                if preds_verbs is not None:
+                    verb_corr, n_v = self.num_correct_preds(preds_verbs, verb_labels, self.distributed)
+                    correct_preds_verbs += verb_corr
+                    num_verbs += n_v
+                if preds_nouns is not None:
+                    noun_corr, n_n = self.num_correct_preds(preds_nouns, noun_labels, self.distributed)
+                    correct_preds_nouns += noun_corr
+                    num_nouns += n_n
+            
+            verb_accuracy, noun_accuracy = 0.0, 0.0
+            if num_verbs > 0:
+                verb_accuracy = correct_preds_verbs / num_verbs
+            if num_nouns > 0:
+                noun_accuracy = correct_preds_nouns / num_nouns
+            return (verb_accuracy, noun_accuracy)
+
+
+                # if self.cfg.trainer.verb:
+                #     preds_verbs = torch.argmax(preds_verbs, dim=-1)
+                #     preds_verbs, refs_verbs = self.accelerator.gather_for_metrics((preds_verbs, verb_labels))
+                #     accurate_preds_verb = preds_verbs == refs_verbs
+                #     nv += len(accurate_preds_verb)  # type: ignore
+                #     correct_preds_verbs += accurate_preds_verb.long().sum().item()
+                #     # verb_metrics.add_batch(predictions=preds, references=refs)
+
+                # if self.cfg.trainer.noun:
+                #     preds_nouns = torch.argmax(preds_nouns, dim=-1)
+                #     preds_nouns, refs_nouns = self.accelerator.gather_for_metrics((preds_nouns, noun_labels))
+                #     accurate_preds_noun = preds_nouns == refs_nouns
+                #     nn += len(accurate_preds_noun)  # type: ignore
+                #     correct_preds_nouns += accurate_preds_noun.long().sum().item()  
+                #     # noun_metrics.add_batch(references=refs, predictions=preds)
 
         # Training loop
         step_counter = 0
-        best_val_loss = 10000
-        best_val_acc = [0, 0]
+        best_val_acc = [0.0, 0.0]
+        pbar = tqdm(
+            range(len(self.train_loader) * num_epochs),
+            disable=not self.accelerator.is_main_process,
+        )
         for epoch in range(num_epochs):
             self.accelerator.print(
                 f"\n---------------- Epoch: {epoch + 1} ----------------"
             )
             epoch_loss = 0.0
-            step_loss = 0.0
-            num_elems = 0
-            correct_preds_verb = correct_preds_noun = 0
-            for i, batch in tqdm(enumerate(self.train_loader)):
+            num_verbs = num_nouns = 0
+            correct_verbs = correct_nouns = 0
+            self.model.train()
+            
+            for _, batch in enumerate(self.train_loader):
                 step_counter += 1
                 verb_labels = batch[0][1]["verb_class"]
                 noun_labels = batch[0][1]["noun_class"]
+               
                 with self.accelerator.accumulate(self.model):
                     verb_logits, noun_logits = self.model(
-                        batch, fp16=self.use_amp
-                    )  # self._train_helper(batch)
+                        batch,
+                        fp16=self.use_amp,
+                        verb=self.cfg.trainer.verb,
+                        noun=self.cfg.trainer.noun,
+                    )
+                    if self.accelerator.sync_gradients:
+                        self.accelerator.clip_grad_norm_(
+                            self.model.parameters(), max_norm=1.0,
+                        )
                     loss = self.compute_loss(
                         verb_logits, verb_labels, noun_logits, noun_labels
                     )
+                    epoch_loss += loss.item()
                     self._backprop(loss)
-                    step_loss += loss.item()
 
-                # if self.cfg.trainer.verb:
-                #     accurate_preds_verbs = self.compute_accuracy(verb_logits, verb_labels)
-                #     accurate_preds_verbs = accurate_preds_verbs.long().sum().item() # type: ignore
-                # else:
-                #     accurate_preds_verbs = 0
+                if self.cfg.trainer.verb:
+                    preds_verbs = self.cls_head(verb_logits).argmax(dim=-1)
+                    _correct_verbs, _n_verbs = self.num_correct_preds(preds_verbs, verb_labels)
+                    correct_verbs += _correct_verbs
+                    num_verbs += _n_verbs
+                if self.cfg.trainer.noun:
+                    preds_nouns = self.cls_head(noun_logits).argmax(dim=-1)
+                    _correct_nouns, _n_nouns = self.num_correct_preds(preds_nouns, noun_labels)
+                    correct_nouns += _correct_nouns
+                    num_nouns += _n_nouns
 
-                # if self.cfg.trainer.noun:
-                #     accurate_preds_nouns = self.compute_accuracy(noun_logits, noun_labels)
-                #     accurate_preds_nouns = accurate_preds_nouns.long().sum().item() # type: ignore
-                # else:
-                #     accurate_preds_nouns = 0
-
-                # correct_preds_verb += accurate_preds_verbs
-                # correct_preds_noun += accurate_preds_nouns
-                # num_elems += max(verb_logits.shape[0], noun_logits.shape[0])
-
-                if val_n_steps is not None and step_counter % val_n_steps == 0:
-                    val_accuracy_verb, val_accuracy_noun = self.validate()
+                if val_n_steps is not None and step_counter % val_n_steps == 0 and self.accelerator.sync_gradients:
+                    self.model.eval()
+                    (val_accuracy_verb, val_accuracy_noun) = _validate()  
                     val_acc_history.append((val_accuracy_verb, val_accuracy_noun))
                     if val_accuracy_verb > best_val_acc[0]:
+                        self.accelerator.wait_for_everyone()
                         self.accelerator.save_state(
                             os.path.join(self.cfg.model.save_path, "verbs")
                         )
                         best_val_acc[0] = val_accuracy_verb  # type: ignore
                     if val_accuracy_noun > best_val_acc[1]:
+                        self.accelerator.wait_for_everyone()
                         self.accelerator.save_state(
                             os.path.join(self.cfg.model.save_path, "nouns")
                         )
                         best_val_acc[1] = val_accuracy_noun  # type: ignore
 
-                    # tb_steps = epoch * len(self.train_loader) + i
                     self.accelerator.log(
                         {
                             "val accuracy [verbs]": val_accuracy_verb,
@@ -402,92 +497,52 @@ class Trainer:
                         },
                         step=step_counter,
                     )
-
-                # Log training progress to tensorboard
-                if step_counter % log_n_steps == 0:
-                    avg_loss = step_loss / log_n_steps
-
-                    nv = nn = 0
-                    if self.cfg.trainer.verb:
-                        accurate_preds_verbs = self.compute_accuracy(
-                            verb_logits, verb_labels
-                        )
-                        nv = len(accurate_preds_verbs)  # type: ignore
-                        accurate_preds_verbs = accurate_preds_verbs.long().sum().item()  # type: ignore
-                    else:
-                        accurate_preds_verbs = 0
-
-                    if self.cfg.trainer.noun:
-                        accurate_preds_nouns = self.compute_accuracy(
-                            noun_logits, noun_labels
-                        )
-                        nn = len(accurate_preds_nouns)  # type: ignore
-                        accurate_preds_nouns = accurate_preds_nouns.long().sum().item()  # type: ignore
-                    else:
-                        accurate_preds_nouns = 0
-
-                    num_elems = max(nv, nn)
-                    avg_acc_verb = accurate_preds_verbs / num_elems
-                    avg_acc_noun = accurate_preds_nouns / num_elems
-                    self.accelerator.log(
-                        {
-                            "train loss": avg_loss,
-                            "train accuracy [verbs]": avg_acc_verb,
-                            "train accuracy [nouns]": avg_acc_noun,
-                        },
-                        step=step_counter,
-                    )
-
-                    epoch_loss += step_loss
-                    step_loss = 0.0
-                    correct_preds_verb = correct_preds_noun = 0
-                    # step_counter = 0
-                    # tb_steps = epoch * len(self.train_loader) + step_counter
-
-                    # self.write_to_tensorboard(
-                    #     tb_writer,
-                    #     func_name="add_scalars",
-                    #     args=(
-                    #         "Training progress",
-                    #         {
-                    #             "train loss": avg_loss,
-                    #             "train accuracy [verbs]": avg_acc_verb,
-                    #             "train accuracy [nouns]": avg_acc_noun,
-                    #         },
-                    #         tb_steps,
-                    #     ),
-                    #     gpu_train_type=gpu_strategy,
-                    # )
+                    self.model.train()
+                pbar.update(1)
 
             # Validation loop after each epoch
             if validate_strategy == "epoch":
-                val_accuracy_verb, val_accuracy_noun = self.validate(best_val_loss)
-                tb_steps = (epoch + 1) * len(self.train_loader)
-                self.write_to_tensorboard(
-                    tb_writer,
-                    func_name="add_scalars",
-                    args=(
-                        "Validation Accuracy",
-                        {
-                            "val accuracy [verbs]": val_accuracy_verb,
-                            "val accuracy [nouns]": val_accuracy_noun,
-                        },
-                        tb_steps,
-                    ),
-                    gpu_train_type=gpu_strategy,
-                )
-                # val_loss_history.append(val_loss)
+                self.model.eval()
+                val_accuracy_verb, val_accuracy_noun = _validate()
                 val_acc_history.append((val_accuracy_verb, val_accuracy_noun))
                 if val_accuracy_verb > best_val_acc[0]:
+                    self.accelerator.wait_for_everyone()
                     self.accelerator.save_state(
                         os.path.join(self.cfg.model.save_path, "verbs")
                     )
-                    best_val_acc[0] = val_accuracy_verb  # type: ignore
+                    best_val_acc[0] = val_accuracy_verb  
                 if val_accuracy_noun > best_val_acc[1]:
+                    self.accelerator.wait_for_everyone()
                     self.accelerator.save_state(
                         os.path.join(self.cfg.model.save_path, "nouns")
                     )
-                    best_val_acc[1] = val_accuracy_noun  # type: ignore
+                    best_val_acc[1] = val_accuracy_noun
+                self.accelerator.log(
+                    {
+                        "val accuracy [verbs]": val_accuracy_verb,
+                        "val accuracy [nouns]": val_accuracy_noun,
+                    },
+                    step=step_counter,
+                )
+                self.accelerator.print({
+                    "train epoch loss": epoch_loss, 
+                    "val accuracy [verbs]": val_accuracy_verb, 
+                    "val accuracy [nouns]": val_accuracy_noun,
+                })
+                self.model.train()
+
+            # Log to tensorboard after each epoch
+            avg_loss = epoch_loss / len(self.train_loader)
+            avg_verb_acc = correct_verbs / num_verbs if num_verbs > 0 else 0.0
+            avg_noun_acc = correct_nouns / num_nouns if num_nouns > 0 else 0.0
+            self.accelerator.log(
+                {
+                    "train loss": avg_loss,
+                    "train accuracy [verbs]": avg_verb_acc, 
+                    "train accuracy [nouns]": avg_noun_acc,
+                },
+                step = step_counter
+            )
 
             # Check early stopping conditions after each epoch
             if self.early_stopping is not None:
@@ -503,7 +558,7 @@ class Trainer:
                 ):
                     break
 
-                elif self.early_stopping[
+                if self.early_stopping[
                     "criterion"
                 ] == "loss" and check_early_stopping(
                     val_loss_history,
@@ -511,58 +566,14 @@ class Trainer:
                 ):
                     break
 
+            # * Step LR scheduler after each epoch
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
+
+
+        self.accelerator.wait_for_everyone()
         LOG.info("Training completed!")
         self.accelerator.end_training()
-
-    def validate(self, distributed=True):
-        """
-        Validation run for a batch. Each example within a batch contains
-        two tuples: ((rgb, metadata), (flow, metadata))
-
-        __args__
-            distributed: whether to use distributed setup for validation
-
-        __returns__
-            val_acc_verb (float): validation accuracy (verbs)
-            val_acc_noun (float): validation accuracy (nouns)
-        """
-        # TODO: configure distributed validation on other training modes (DDP)
-        # TODO: figure out non-distributed validation
-        self.model.eval()
-        correct_preds_verbs = correct_preds_nouns = 0.0
-        num_elems = 0
-        for batch in tqdm(self.val_loader):
-            verb_labels = batch[0][1]["verb_class"]
-            noun_labels = batch[0][1]["noun_class"]
-            nv = nn = 0
-            # with torch.no_grad():
-            verb_logits, noun_logits = self.model(batch, fp16=self.use_amp)
-            if self.cfg.trainer.verb:
-                accurate_preds_verbs = self.compute_accuracy(verb_logits, verb_labels, distributed=distributed)
-                nv = len(accurate_preds_verbs)  # type: ignore
-                accurate_preds_verbs = accurate_preds_verbs.long().sum().item()  # type: ignore
-
-            else:
-                accurate_preds_verbs = 0
-
-            if self.cfg.trainer.noun:
-                accurate_preds_nouns = self.compute_accuracy(noun_logits, noun_labels, distributed=distributed)
-                nn = len(accurate_preds_nouns)  # type: ignore
-                accurate_preds_nouns = accurate_preds_nouns.long().sum().item()  # type: ignore
-            else:
-                accurate_preds_nouns = 0
-
-            correct_preds_verbs += accurate_preds_verbs
-            correct_preds_nouns += accurate_preds_nouns
-            num_elems += max(nn, nv)
-
-        #! USE num_elems instead?
-        # self.accelerator.print(f'num_elems = {num_elems}, val loader length = {len(self.val_loader)}')
-        val_accuracy_verbs = correct_preds_verbs / num_elems
-        val_accuracy_nouns = correct_preds_nouns / num_elems
-        # val_loss = val_loss / len(self.val_loader)
-
-        return val_accuracy_verbs, val_accuracy_nouns
 
     def is_early_stopping(
         self, metrics, early_stopping_epochs, threshold_epochs=0, threshold_val=0.0
@@ -644,552 +655,6 @@ def ddp_setup(rank, world_size, master_port, backend):
     os.environ["MASTER_PORT"] = str(master_port)
     init_process_group(backend, rank=rank, world_size=world_size)
 
-
-#! should de deprecated but can be used for DDP training in Trainer
-def train(
-    device,
-    datamodule,
-    system,
-    verb_save_path,
-    noun_save_path,
-    writer,
-):
-    system.device = device
-    batch_size = system.cfg.learning.batch_size
-    val_batch_size = system.cfg.learning.val_batch_size
-    num_epochs = system.cfg.trainer.max_epochs
-    train_loader = datamodule.train_dataloader(device)
-    val_loader = datamodule.val_dataloader(device)
-    log_every_n_steps = system.cfg.trainer.get("log_every_n_steps", 1)
-    steps_per_run = len(train_loader)
-    (
-        train_loss_history,
-        validation_loss_history,
-        train_accuracy_history,
-        validation_accuracy_history,
-    ) = ([], [], [], [])
-
-    verb_snapshot_path = noun_snapshot_path = None
-    if "load_snapshot" in system.cfg.trainer:
-        verb_snapshot_path = system.cfg.trainer.load_snapshot.get(
-            "verb_snapshot_path", None
-        )
-        if verb_snapshot_path is not None:
-            verb_snapshot_path = Path(verb_snapshot_path)
-        noun_snapshot_path = system.cfg.trainer.load_snapshot.get(
-            "noun_snapshot_path", None
-        )
-        if noun_snapshot_path is not None:
-            noun_snapshot_path = Path(noun_snapshot_path)
-
-    def train_one_epoch(model, epoch_index):
-        running_loss = avg_loss = avg_acc = 0.0
-        train_loss_meter = ActionMeter("train loss")
-        train_acc_meter = ActionMeter("train accuracy")
-        for i, batch in enumerate(
-            tqdm(
-                train_loader,
-                desc=f"train_loader epoch {epoch_index + 1}/{num_epochs}",
-                total=steps_per_run,
-                leave=False,
-            )
-        ):
-            batch_acc, batch_loss = system._step(batch, model, key)
-            avg_loss += batch_loss.item()
-            avg_acc += batch_acc
-            train_acc_meter.update(batch_acc, batch_size)
-            train_loss_meter.update(batch_loss.item(), batch_size)
-            system.backprop(model, batch_loss)
-
-            if (i + 1) % log_every_n_steps == 0:
-                running_loss += avg_loss
-                avg_loss = avg_loss / log_every_n_steps
-                avg_acc = (
-                    avg_acc / log_every_n_steps
-                )  # train_acc_meter.get_average_values()
-                # log_print(
-                #     LOG,
-                #     f'batch: {i + 1} \t loss: {avg_loss} \t accuracy: {avg_acc}'
-                # )
-                tb_steps = epoch_index * steps_per_run + i + 1
-                writer.add_scalars(
-                    "Train metrics",
-                    {"train loss": avg_loss, "train accuracy": avg_acc},
-                    tb_steps,
-                )
-                # train_loss_meter.reset()
-                # train_acc_meter.reset()
-                avg_loss = avg_acc = 0.0
-                break
-        LOG.info(f"train loss meter: {train_loss_meter.get_average_values()}")
-        return running_loss / steps_per_run, train_acc_meter.get_average_values()
-
-    def train_loop(
-        model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0
-    ):
-        best_val_acc = 0.0
-        # log_print(LOG, f"len(train_loader) = {len(train_loader)} = {steps_per_run}")
-        # for epoch in tqdm(range(epoch_start, num_epochs), desc=tqdm_desc, position=0):
-        for epoch in range(epoch_start, num_epochs):
-            model.train(True)
-            system.rgb_model.train(True)
-            system.flow_model.train(True)
-            train_loss, train_acc = train_one_epoch(model, epoch)
-            train_loss_history.append(train_loss)
-            train_accuracy_history.append(train_acc)
-
-            # Validation
-            model.eval()
-            system.rgb_model.eval()
-            system.flow_model.eval()
-            # val_loss_meter = ActionMeter("val loss")
-            val_acc_meter = ActionMeter("val accuracy")
-            running_vloss = 0.0
-            with torch.no_grad():
-                for batch in tqdm(
-                    val_loader,
-                    desc=f"val_loader epoch {epoch+1}/{num_epochs}",
-                    total=len(val_loader),
-                    leave=False,
-                ):
-                    batch_acc, batch_loss = system._step(batch, model, key)
-                    val_acc_meter.update(batch_acc, val_batch_size)
-                    running_vloss += batch_loss.item()
-                    # val_loss_meter.update(batch_loss.item(), val_batch_size)
-
-            # val_loss = val_loss_meter.get_average_values()
-            val_loss = running_vloss / len(val_loader)
-            val_acc = val_acc_meter.get_average_values()
-            validation_loss_history.append(val_loss)
-            validation_accuracy_history.append(val_acc)
-            if system.lr_scheduler is not None:
-                system.lr_scheduler.step(val_loss)
-
-            log_print(
-                LOG,
-                f"[Epoch {epoch + 1}/{num_epochs}]"
-                + f" Train Loss/Val Loss: {train_loss} / {val_loss}"
-                + f"\tTrain Accuracy/Val Accuracy: {train_acc:4f} / {val_acc:.4f}",
-                "info",
-            )
-            log_print(LOG, f"Best val_acc = {best_val_acc}")
-            writer.add_scalars(
-                tqdm_desc + ": Loss",
-                {
-                    "train loss": train_loss,
-                    "val loss": val_loss,
-                },
-                steps_per_run * (epoch + 1),
-            )
-            writer.add_scalars(
-                tqdm_desc + ": Accuracy",
-                {"train accuracy": train_acc, "val accuracy": val_acc},
-                steps_per_run * (epoch + 1),
-            )
-            saved = system.save_model(
-                model, val_acc, best_val_acc, epoch + 1, snapshot_save_path
-            )
-            if saved:
-                LOG.info(
-                    f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
-                )
-
-            model.train()
-            system.rgb_model.train()
-            system.flow_model.train()
-            best_val_acc = max(best_val_acc, val_acc)
-            if system.early_stopping(val_loss, val_acc):
-                break
-
-    train_verb = system.cfg.trainer.get("verb", True)
-    train_noun = system.cfg.trainer.get("noun", True)
-    # VERB TRAINING
-    if train_verb:
-        system.load_models_to_device(device, verb=True)
-
-        (
-            train_loss_history,
-            validation_loss_history,
-            train_accuracy_history,
-            validation_accuracy_history,
-        ) = ([], [], [], [])
-
-        assert system.verb_embeddings is not None, "verb embeddings not initialized"
-        assert system.verb_map is not None, "verb map not initialized"
-
-        verb_model = AttentionModel(system.verb_map).to(device)
-        opt_sd = lr_scheduler_sd = None
-        epoch_start = 0
-        if verb_snapshot_path is not None:
-            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(
-                verb_snapshot_path, device, verb_model, model_key="attention_model"
-            )
-            LOG.info(
-                f"Loaded state dict for models from {verb_snapshot_path}, starting at epoch {epoch_start}"
-            )
-        key = "verb_class"
-        system.opt = system.get_optimizer(verb_model)
-        if opt_sd is not None:
-            system.opt.load_state_dict(opt_sd)
-            LOG.info(f"Loaded state dict for optimizer from {verb_snapshot_path}")
-        system.lr_scheduler = system.get_lr_scheduler()
-        if lr_scheduler_sd is not None:
-            system.lr_scheduler.load_state_dict(lr_scheduler_sd)
-            LOG.info(f"Loaded state dict for LR scheduler from {verb_snapshot_path}")
-        log_print(
-            LOG,
-            "---------------- ### PHASE 1: TRAINING VERBS ### ----------------",
-            "info",
-        )
-        train_loop(
-            verb_model, verb_save_path, key, "training loop (verbs)", epoch_start
-        )
-        train_stats = {
-            "train_accuracy": train_accuracy_history,
-            "train_loss": train_loss_history,
-            "val_accuracy": validation_accuracy_history,
-            "val_loss": validation_loss_history,
-        }
-
-        # Write training stats for analysis
-        fname = os.path.join(system.cfg.model.save_path, "train_stats_verbs.pkl")
-        write_pickle(train_stats, fname)
-        LOG.info("Finished verb training")
-
-    # NOUN TRAINING
-    if train_noun:
-        system.load_models_to_device(device, verb=True)
-        (
-            train_loss_history,
-            validation_loss_history,
-            train_accuracy_history,
-            validation_accuracy_history,
-        ) = ([], [], [], [])
-
-        if train_verb:
-            system.freeze_feature_extractors()
-        key = "noun_class"
-        torch.cuda.empty_cache()
-        epoch_start = 0
-        system.load_models_to_device(device, verb=False)
-        noun_model = AttentionModel(system.noun_map).to(device)
-        opt_sd = lr_scheduler_sd = None
-        if noun_snapshot_path is not None:
-            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(
-                noun_snapshot_path, device, noun_model, "attention_model"
-            )
-            LOG.info(
-                f"Loaded state dict for models from {noun_snapshot_path}, starting at epoch {epoch_start}"
-            )
-        system.opt = system.get_optimizer(noun_model)
-        if opt_sd is not None:
-            system.opt.load_state_dict(opt_sd)
-            LOG.info(f"Loaded state dict for optimizer from {noun_snapshot_path}")
-        if lr_scheduler_sd is not None:
-            system.lr_scheduler.load_state_dict(lr_scheduler_sd)
-            LOG.info(f"Loaded state dict for LR scheduler from {noun_snapshot_path}")
-        log_print(
-            LOG,
-            "---------------- ### PHASE 2: TRAINING NOUNS ### ----------------",
-            "info",
-        )
-        train_loop(
-            noun_model, noun_save_path, key, "training loop (nouns)", epoch_start
-        )
-        train_stats = {
-            "train_accuracy": train_accuracy_history,
-            "train_loss": train_loss_history,
-            "val_accuracy": validation_accuracy_history,
-            "val_loss": validation_loss_history,
-        }
-        # Write training stats for analysis
-        fname = os.path.join(system.cfg.model.save_path, "train_stats_nouns.pkl")
-        write_pickle(train_stats, fname)
-        LOG.info("Finished noun training")
-
-
-def ddp_train(
-    rank,
-    world_size,
-    free_port,
-    datamodule,
-    system,
-    verb_save_path,
-    noun_save_path,
-    batch_size,
-    num_epochs,
-):
-    ddp_setup(
-        rank, world_size, free_port, system.cfg.learning.ddp.backend
-    )  # should be taken from cfg
-    global_rank = dist.get_rank()
-    system.device = torch.device(rank)
-    train_loader = datamodule.train_dataloader(rank)
-    val_loader = datamodule.val_dataloader(rank)
-    log_every_n_steps = system.cfg.trainer.get("log_every_n_steps", 1)
-    val_batch_size = system.cfg.learning.val_batch_size
-    steps_per_run = len(train_loader)
-    writer = SummaryWriter(system.cfg.trainer.tb_runs)
-    (
-        train_loss_history,
-        validation_loss_history,
-        train_accuracy_history,
-        validation_accuracy_history,
-    ) = ([], [], [], [])
-
-    def ddp_one_epoch(model, epoch_index):
-        """Trains DDP model for one epoch and logs loss and accuracy
-        to Tensorboard.
-
-        Args:
-            model: DDP model to train
-            epoch_index: current epoch index being trained
-
-        Returns:
-            (avg_train_loss, avg_train_acc): Tuple containing average
-            training loss and accuracy for that epoch
-        """
-        running_loss = avg_loss = avg_acc = 0.0
-        acc_meter = ActionMeter("accuracy")
-        for i, batch in enumerate(train_loader):
-            batch_acc, batch_loss = system._step(batch, ddp_model, key)
-            avg_loss += batch_loss.item()
-            avg_acc += batch_acc
-            acc_meter.update(batch_acc, system.cfg.learning.batch_size)
-            system.backprop(ddp_model, batch_loss)
-
-            if (i + 1) % log_every_n_steps == 0:
-                running_loss += avg_loss
-                avg_loss = avg_loss / log_every_n_steps
-                avg_acc = (
-                    avg_acc / log_every_n_steps
-                )  # train_acc_meter.get_average_values()
-                tb_steps = epoch_index * steps_per_run + i + 1
-                writer.add_scalars(
-                    "Real-time training metrics",
-                    {"train loss": avg_loss, "train accuracy": avg_acc},
-                    tb_steps,
-                )
-                avg_loss = avg_acc = 0.0
-
-        return running_loss / steps_per_run, acc_meter.get_average_values()
-
-    def ddp_loop(
-        ddp_model, snapshot_save_path, key, tqdm_desc="training loop", epoch_start=0
-    ):
-        best_val_acc = 0.0
-        for epoch in tqdm(
-            range(epoch_start, num_epochs),
-            desc=tqdm_desc,
-            position=0,
-        ):
-            train_loader.sampler.set_epoch(epoch)
-            train_loss, train_acc = ddp_one_epoch(ddp_model, epoch)
-            train_loss_history.append(train_loss)
-            train_accuracy_history.append(train_acc)
-
-            # Validation
-            val_loader.sampler.set_epoch(epoch)
-            ddp_model.eval()
-            system.rgb_model.eval()
-            system.flow_model.eval()
-            val_loss_meter = ActionMeter("val loss")
-            val_acc_meter = ActionMeter("val accuracy")
-            with torch.no_grad():
-                running_vloss = 0.0
-                num_items = 0
-                for batch in val_loader:
-                    # for batch in tqdm(
-                    #     val_loader,
-                    #     desc=f"val_loader epoch: {epoch+1}",
-                    #     total=len(val_loader),
-                    #     leave=False
-                    # ):
-                    batch_acc, batch_loss = system._step(batch, ddp_model, key)
-                    log_print(LOG, f"num of items = {len(batch[0][0])} on rank {rank}")
-                    num_items += len(batch[0][0])
-                    val_acc_meter.update(batch_acc, len(batch[0][0]))
-                    running_vloss += batch_loss.item()
-                    val_loss_meter.update(batch_loss.item(), len(batch[0][0]))
-                # val_loss = val_loss_meter.get_average_values()
-                print(
-                    f"val_loss on rank {rank} = {val_loss_meter.get_average_values()}"
-                )
-                val_loss = running_vloss / len(val_loader)
-                val_acc = val_acc_meter.get_average_values()
-                validation_loss_history.append(val_loss)
-                validation_accuracy_history.append(val_acc)
-                if system.lr_scheduler is not None:
-                    system.lr_scheduler.step(val_loss)
-
-            if global_rank == 0:
-                log_print(
-                    LOG,
-                    f"Epoch:{epoch + 1}"
-                    + f" Train Loss/Val Loss: {train_loss:4f}/{val_loss:4f}"
-                    + f" Train Accuracy/Val Accuracy: {train_acc:4f}/{val_acc:.4f}",
-                    "info",
-                )
-                saved = system.save_model(
-                    ddp_model, val_acc, best_val_acc, epoch + 1, snapshot_save_path
-                )
-                if saved:
-                    LOG.info(
-                        f"Saved model state for epoch {epoch + 1} at {snapshot_save_path}/checkpoint_{epoch + 1}.pt"
-                    )
-
-            writer.add_scalars(
-                tqdm_desc + ": Loss",
-                {
-                    "train loss": train_loss,
-                    "val loss": val_loss,
-                },
-                steps_per_run * (epoch + 1),
-            )
-            writer.add_scalars(
-                tqdm_desc + ": Accuracy",
-                {"train accuracy": train_acc, "val accuracy": val_acc},
-                steps_per_run * (epoch + 1),
-            )
-            if system.early_stopping(val_loss, val_acc):
-                break
-            ddp_model.train()
-            system.rgb_model.train()
-            system.flow_model.train()
-            best_val_acc = max(best_val_acc, val_acc)
-
-    verb_snapshot_path = noun_snapshot_path = None
-    if "load_snapshot" in system.cfg.trainer:
-        verb_snapshot_path = system.cfg.trainer.load_snapshot.get(
-            "verb_snapshot_path", None
-        )
-        if verb_snapshot_path is not None:
-            verb_snapshot_path = Path(verb_snapshot_path)
-        noun_snapshot_path = system.cfg.trainer.load_snapshot.get(
-            "noun_snapshot_path", None
-        )
-        if noun_snapshot_path is not None:
-            noun_snapshot_path = Path(noun_snapshot_path)
-    train_verb = system.cfg.trainer.get("verb", True)
-    train_noun = system.cfg.trainer.get("noun", True)
-
-    # VERB TRAINING
-    if train_verb:
-        system.load_models_to_device(device=rank, verb=True)
-
-        (
-            train_loss_history,
-            validation_loss_history,
-            train_accuracy_history,
-            validation_accuracy_history,
-        ) = ([], [], [], [])
-
-        assert system.verb_embeddings is not None, "verb embeddings not initialized"
-        assert system.verb_map is not None, "verb map not initialized"
-
-        verb_model = AttentionModel(system.verb_map).to(rank)
-        opt_sd = lr_scheduler_sd = None
-        epoch_start = 0
-        if verb_snapshot_path is not None:
-            epoch_start, opt_sd, lr_scheduler_sd = system.load_snapshot(
-                verb_snapshot_path,
-                torch.device(rank),
-                verb_model,
-                model_key="ddp_model",
-            )
-            LOG.info(
-                f"Loaded state dict for models from {verb_snapshot_path}, starting at epoch {epoch_start}"
-            )
-        ddp_model = DDP(verb_model, device_ids=[rank])
-        key = "verb_class"
-        system.opt = system.get_optimizer(ddp_model)
-        if opt_sd is not None:
-            system.opt.load_state_dict(opt_sd)
-            LOG.info(
-                f"Loaded state dict for optimizer from {verb_snapshot_path}, starting at epoch {epoch_start}"
-            )
-        if global_rank == 0:
-            log_print(
-                LOG,
-                "---------------- ### PHASE 1: TRAINING VERBS ### ----------------",
-                "info",
-            )
-        ddp_loop(ddp_model, verb_save_path, key, "training loop (verbs)", epoch_start)
-        # dist.barrier()
-        train_stats = {
-            "train_accuracy": train_accuracy_history,
-            "train_loss": train_loss_history,
-            "val_accuracy": validation_accuracy_history,
-            "val_loss": validation_loss_history,
-        }
-
-        # Write training stats for analysis
-        fname = os.path.join(system.cfg.model.save_path, "train_stats_verbs.pkl")
-        if rank == 0:
-            write_pickle(train_stats, fname)
-            LOG.info("Finished verb training")
-
-    # NOUN TRAINING
-    if train_noun:
-        system.load_models_to_device(rank, verb=True)
-        (
-            train_loss_history,
-            validation_loss_history,
-            train_accuracy_history,
-            validation_accuracy_history,
-        ) = ([], [], [], [])
-
-        if train_verb:
-            system.freeze_feature_extractors()
-        key = "noun_class"
-        torch.cuda.empty_cache()
-        epoch_start = 0
-        system.load_models_to_device(rank, verb=False)
-        noun_model = AttentionModel(system.noun_map).to(rank)
-        opt_sd = lr_scheduler_sd = None
-        if noun_snapshot_path is not None:
-            epoch_start, opt_sd = system.load_snapshot(
-                noun_snapshot_path, torch.device(rank), noun_model, "ddp_model"
-            )
-            LOG.info(
-                f"Loaded state dict for models from {noun_snapshot_path}, starting at epoch {epoch_start}"
-            )
-        ddp_model = DDP(noun_model, device_ids=[rank])
-        system.opt = system.get_optimizer(ddp_model)
-        if opt_sd is not None:
-            system.opt.load_state_dict(opt_sd)
-            LOG.info(
-                f"Loaded state dict for optimizer from {noun_snapshot_path}, starting at epoch {epoch_start}"
-            )
-        if rank == 0:
-            log_print(
-                LOG,
-                "---------------- ### PHASE 2: TRAINING NOUNS ### ----------------",
-                "info",
-            )
-        ddp_loop(ddp_model, noun_save_path, key, "training loop (nouns)", epoch_start)
-        dist.barrier()
-        train_stats = {
-            "train_accuracy": train_accuracy_history,
-            "train_loss": train_loss_history,
-            "val_accuracy": validation_accuracy_history,
-            "val_loss": validation_loss_history,
-        }
-        # Write training stats for analysis
-        fname = os.path.join(system.cfg.model.save_path, "train_stats_nouns.pkl")
-        if rank == 0:
-            write_pickle(train_stats, fname)
-            LOG.info("Finished noun training")
-
-    writer.close()
-    ddp_shutdown()
-
-
-def ddp_shutdown():
-    destroy_process_group()
-    # writer.close()
-
-
 def get_device_from_config(config):
     if "gpu_training" not in config.trainer:
         return torch.device("cpu")
@@ -1214,41 +679,16 @@ def main(cfg: DictConfig):
     trainer = Trainer(name="transformers_testing", cfg=cfg, device=device)  # type: ignore
     validate_strategy = "epoch" if cfg.trainer.validate == "epoch" else "steps"
     trainer.train(cfg.trainer.max_epochs, validate_strategy=validate_strategy)
-
-    # data_module = EpicActionRecognitionDataModule(cfg)
-    # verb_path, noun_path = create_snapshot_paths(Path(cfg.model.save_path))
-    # tb_writer = SummaryWriter(cfg.trainer.tb_runs)
-    # if cfg.learning.get("ddp", False):
-    #     change_port = "Y"
-    #     if cfg.learning.ddp.get("master_port", None) is not None:
-    #         change_port = input(
-    #             f"Would you like to change the DDP master port from {cfg.learning.ddp.master_port} (Y/N)? "
-    #         )
-    #     if change_port and change_port.upper() == "Y":
-    #         new_port = input("Please enter new port ")
-    #         cfg.learning.ddp.master_port = new_port
-
-    #     print(f"Proceeding with port {cfg.learning.ddp.master_port}")
-    #     system = DDPRecognitionModule(cfg)
-    #     set_env_ddp(str(cfg.learning.ddp.get("nccl_p2p_disable", 1)))
-    #     run_ddp(
-    #         system,
-    #         data_module,
-    #         cfg.learning.ddp.master_port,
-    #         verb_path,
-    #         noun_path,
-    #         ddp_train,
-    #     )
-    # else:
-    #     system = EpicActionRecognitionModule(cfg)
-    #     device = get_device()
-    #     train(device, data_module, system, verb_path, noun_path, tb_writer)
-    # LOG.info("Training completed!")
-    # close_logger(LOG)
-    # sys.exit()  # required to prevent CPU lock (soft bug)
-
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
 
-# trainer.gpus=6 learning.ddp.nprocs=6 learning.lr=0.1 learning.batch_size=2 learning.val_batch_size=8
+''' INFO: args to run on usha:
+
+trainer.gpus=6 \
+learning.ddp.nprocs=6 \
+learning.lr=0.1 \
+learning.batch_size=2 \
+learning.val_batch_size=8
+'''

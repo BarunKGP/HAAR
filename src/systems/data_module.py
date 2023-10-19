@@ -90,7 +90,7 @@ class EpicActionRecognitionDataModule(object):
         test_transforms = Compose(
             [
                 GroupScale(cfg.test_augmentation.rescale_size),
-                GroupCenterCrop(cfg.preprocessing.input_size),
+                # GroupCenterCrop(cfg.preprocessing.input_size),
                 common_transforms,
             ]
         )
@@ -158,7 +158,7 @@ class EpicActionRecognitionDataModule(object):
         return DataLoader(
             dataset=dataset,
             batch_size=self.cfg.learning.batch_size,
-            shuffle=True,  # ? should shuffle be true
+            shuffle=False,  #* setting shuffle=False because TSM learns depth-wise features
             num_workers=self.cfg.data.worker_count,
             pin_memory=self.cfg.data.pin_memory,
         )
