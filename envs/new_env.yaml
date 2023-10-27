@@ -1,0 +1,13 @@
+name: new-env
+channels:
+  - defaults
+  - pytorch
+dependencies:
+  - python=3.10.*
+  - numpy
+  - opencv
+  - pip
+  - matplotlib
+  - pandas
+  - jupyter
+  - ipython

@@ -50,7 +50,7 @@ model:
   weights: 
     rgb: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_rgb.ckpt
     flow: /coc/scratch/bdas31/EPIC-Kitchens_100/C1-Action-Recognition-TSN-TRN-TSM/pretrained_models/tsm_flow.ckpt
-  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/exps/101623
+  save_path: /coc/scratch/bdas31/EPIC-Kitchens_100/HAAR/data/exps/102223
   dropout: 0.7
   partial_bn: yes
   shift_div: 8
@@ -70,31 +70,31 @@ model:
     nouns: 305
 
 learning:
-  batch_size: 8
+  batch_size: 16
   val_batch_size: 8
   optimizer:
     type: AdamW
     args:
       weight_decay: 0.01
       # foreach: True
-  base_lr: 0.003
-  lr_scheduler:
-    type: CosineAnnealingLR 
-    args:
-      T_max: ${trainer.max_epochs}
-      eta_min: 1e-4
+  base_lr: 0.001
+  # lr_scheduler:
+  #  type: CosineAnnealingLR 
+  #  args:
+  #   T_max: ${trainer.max_epochs}
+  #   eta_min: 1e-4
   
 
 trainer:
-  verb: False
-  noun: True
+  verb: True
+  noun: False
   # gradient_clip_val: 2
   gradient_accumulation_steps: 4
   max_epochs: 300
   early_stopping:
     criterion: accuracy
     epochs: 10
-    threshold_epochs: 50 # train 10 epochs before checking early stopping
+    threshold_epochs: 50 # train 50 epochs before checking early stopping
     threshold: 0.6
   loss_fn:
     type: CrossEntropyLoss
@@ -104,7 +104,7 @@ trainer:
   gpu_training:
     type: "accelerate"
     args:
-      devices: 3
+      devices: 2
     # ddp: 
     #   nprocs: 3
     #   backend: nccl

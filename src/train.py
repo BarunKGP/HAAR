@@ -69,9 +69,9 @@ class Trainer:
             log_with="tensorboard",
             kwargs_handlers=[ddp_kwargs],
         )
-        if hf_datasets.logging.is_progress_bar_enabled():
-            self.accelerator.print("Disabling progress bars for dataset preprocessing")
-            hf_datasets.logging.disable_progress_bar()
+        # if hf_datasets.logging.is_progress_bar_enabled():
+        #     self.accelerator.print("Disabling progress bars for dataset preprocessing")
+        #     hf_datasets.logging.disable_progress_bar()
 
         self.action_embeddings = self.get_embeddings()
         self.model = HaarModel(
@@ -120,7 +120,7 @@ class Trainer:
             label_smoothing=self.cfg.trainer.loss_fn.args.get("label_smoothing", 0)
         )
 
-    def get_lr_scheduler(self) -> LRScheduler | None:
+    def get_lr_scheduler(self):
         if "lr_scheduler" not in self.cfg.learning:
             return None
         assert self.optimizer is not None, "optimizer not assigned"
@@ -136,11 +136,12 @@ class Trainer:
         if scale_lr:
             lr = math.sqrt(self.accelerator.num_processes) * lr
         opt_params = [p for p in self.model.parameters() if p.requires_grad]
-        optimizer_map = {
-            "Adam": partial(Adam, opt_params, lr=lr),
-            "AdamW": partial(AdamW, opt_params, lr=lr),
-            "SGD": partial(SGD, opt_params, lr=lr),
-        }
+
+        # optimizer_map = {
+        #     "Adam": partial(Adam, opt_params, lr=lr),
+        #     "AdamW": partial(AdamW, opt_params, lr=lr),
+        #     "SGD": partial(SGD, opt_params, lr=lr),
+        # }
 
         if "optimizer" in self.cfg.learning:
             opt_key = self.cfg.learning.optimizer.type
@@ -148,14 +149,13 @@ class Trainer:
         else:
             opt_key = DEFAULT_OPT
             args = DEFAULT_ARGS
-        return optimizer_map[opt_key](**args)
+        return getattr(sys.modules["torch.optim"], opt_key)(opt_params, lr=lr, **args) 
+        # optimizer_map[opt_key](**args)
 
     def get_embeddings(self):
         model = WordEmbeddings(device=self.device)
         verb_map = get_word_map(self.cfg.data.verb_loc)
         noun_map = get_word_map(self.cfg.data.noun_loc)
-        # self.accelerator.print(f'\n len(noun_map) = {len(noun_map)}')
-        # self.accelerator.print(noun_map, '\n')
 
         assert NUM_VERBS == len(
             verb_map
@@ -168,67 +168,30 @@ class Trainer:
         text.extend(noun_map["key"].values.tolist())
         return model(text)
 
-    def _distributed_setup(self) -> None:
-        if self.cfg.trainer.gpu_training.type.lower() in ["single", "none"]:
-            return None
-
-        self.distributed = True
-        if self.cfg.trainer.gpu_training.type.lower() == "accelerate":
-            # accelerator = Accelerator(gradient_accumulation_steps=self.cfg.trainer.get('gradient_accumulation_steps', 1))
-            if self.lr_scheduler is not None:
-                self.train_loader, self.val_loader, self.model, self.optimizer, self.lr_scheduler = \
-                    self.accelerator.prepare(
-                        self.train_loader, self.val_loader, self.model, self.optimizer, self.lr_scheduler
-                    )
-            else:
-                self.train_loader, self.val_loader, self.model, self.optimizer = self.accelerator.prepare(
-                    self.train_loader, self.val_loader, self.model, self.optimizer
-                )
-            self.accelerator.init_trackers(project_name="tb")
-
-        elif self.cfg.trainer.gpu_training.type.lower() == "ddp":
-            set_env_ddp(
-                nccl_p2p_disable=self.cfg.trainer.gpu_training.args.get(
-                    "nccl_p2p_disable", "0"
-                )
+    def _distributed_setup(self):
+        if self.lr_scheduler is not None:
+            self.train_loader, self.val_loader, self.model, self.optimizer, self.lr_scheduler = \
+            self.accelerator.prepare(
+                self.train_loader, self.val_loader, self.model, self.optimizer, self.lr_scheduler
             )
-
         else:
-            assert (
-                False
-            ), "Invalid GPU training strategy. Available: [single, accelerate, ddp, None]"
-
-        return None
+            self.train_loader, self.val_loader, self.model, self.optimizer = \
+            self.accelerator.prepare(
+                self.train_loader, self.val_loader, self.model, self.optimizer
+            )
+        
+        tb_project_name = self.cfg.trainer.tb_runs.split('/')[-1]
+        self.accelerator.init_trackers(project_name=tb_project_name)
+        self.distributed = self.accelerator.use_distributed
 
     def save_snapshot(self, epoch):
         pass
-
-    # def _run_ddp(self, ddp_fn, fn_args):
-    #     ddp_args = self.cfg.trainer.gpu_training.args
-    #     init_process_group(ddp_args.backend)
-    #     mp.spawn(
-    #         ddp_fn,
-    #         args=(fn_args),
-    #         nprocs=ddp_args.nprocs,
-    #         join=True,
-    #     )
 
     def _backprop(self, loss):
         assert self.optimizer is not None, "optimizer not initialized"
         self.accelerator.backward(loss)
         self.optimizer.step()
-        self.optimizer.zero_grad(set_to_none=True)
-
-        # # self.scaler.scale(loss)
-        # if self.use_amp:
-        # # if self.accelerator is not None:
-        #     self.accelerator.backward(self.scaler.scale(loss))
-        #     self.scaler.step(self.optimizer)
-        #     self.scaler.update()
-        # else:
-        #     self.accelerator.backward(loss)
-        #     self.optimizer.step()
-        # self.optimizer.zero_grad(set_to_none=True)
+        self.optimizer.zero_grad()
 
     def write_to_tensorboard(
         self,
@@ -370,12 +333,13 @@ class Trainer:
         # noun_metrics = evaluate.load("accuracy")
 
         @torch.no_grad()
-        def _validate() -> Tuple[float, float]:
+        def _validate():
             num_verbs = num_nouns = 0
             correct_preds_verbs = correct_preds_nouns = 0
+            val_loss = 0
             # assert self.optimizer is not None, "optimizer not initialized"
-            for batch in tqdm(
-                self.val_loader,
+            for i, batch in tqdm(
+                enumerate(self.val_loader),
                 total=len(self.val_loader),
                 disable=not self.accelerator.is_main_process,
             ):
@@ -383,19 +347,24 @@ class Trainer:
                 # self.accelerator.print('val batch on', batch[0][0].device)
                 verb_labels = batch[0][1]["verb_class"]
                 noun_labels = batch[0][1]["noun_class"]
-                preds_verbs, preds_nouns = self.model(
+
+                verbs_logits, nouns_logits = self.model(
                     batch,
-                    task='inference', # returns class probabilities
+                    # task='inference', # returns class probabilities
                     fp16=self.use_amp,
                     verb=self.cfg.trainer.verb,
                     noun=self.cfg.trainer.noun,
                 )
+                loss = self.compute_loss(verbs_logits, verb_labels, nouns_logits, noun_labels)
+                val_loss += loss.item()
                 
-                if preds_verbs is not None:
+                if self.cfg.trainer.verb:
+                    preds_verbs = self.cls_head(verbs_logits).argmax(dim=-1)
                     verb_corr, n_v = self.num_correct_preds(preds_verbs, verb_labels, self.distributed)
                     correct_preds_verbs += verb_corr
                     num_verbs += n_v
-                if preds_nouns is not None:
+                if self.cfg.trainer.noun:
+                    preds_nouns = self.cls_head(nouns_logits).argmax(dim=-1)
                     noun_corr, n_n = self.num_correct_preds(preds_nouns, noun_labels, self.distributed)
                     correct_preds_nouns += noun_corr
                     num_nouns += n_n
@@ -405,7 +374,9 @@ class Trainer:
                 verb_accuracy = correct_preds_verbs / num_verbs
             if num_nouns > 0:
                 noun_accuracy = correct_preds_nouns / num_nouns
-            return (verb_accuracy, noun_accuracy)
+
+           
+            return (val_loss / len(self.val_loader), verb_accuracy, noun_accuracy)
 
 
                 # if self.cfg.trainer.verb:
@@ -437,10 +408,14 @@ class Trainer:
             )
             epoch_loss = 0.0
             num_verbs = num_nouns = 0
+            # losses = {
+            #     'train_loss': torch.zeros(len(self.train_loader)), 
+            #     'val_loss': torch.zeros(len(self.val_loader), 1),
+            # }
+            # losses = self.accelerator.prepare(losses)
             correct_verbs = correct_nouns = 0
             self.model.train()
-            
-            for _, batch in enumerate(self.train_loader):
+            for i, batch in enumerate(self.train_loader):
                 step_counter += 1
                 verb_labels = batch[0][1]["verb_class"]
                 noun_labels = batch[0][1]["noun_class"]
@@ -460,6 +435,7 @@ class Trainer:
                         verb_logits, verb_labels, noun_logits, noun_labels
                     )
                     epoch_loss += loss.item()
+                    # losses['train_loss'][i] = loss.item()
                     self._backprop(loss)
 
                 if self.cfg.trainer.verb:
@@ -475,8 +451,10 @@ class Trainer:
 
                 if val_n_steps is not None and step_counter % val_n_steps == 0 and self.accelerator.sync_gradients:
                     self.model.eval()
-                    (val_accuracy_verb, val_accuracy_noun) = _validate()  
+                    (val_loss, val_accuracy_verb, val_accuracy_noun) = _validate() 
                     val_acc_history.append((val_accuracy_verb, val_accuracy_noun))
+                    # val_loss = losses['val_loss'].mean()
+                    val_loss_history.append(val_loss)
                     if val_accuracy_verb > best_val_acc[0]:
                         self.accelerator.wait_for_everyone()
                         self.accelerator.save_state(
@@ -492,6 +470,7 @@ class Trainer:
 
                     self.accelerator.log(
                         {
+                            "val loss": val_loss,
                             "val accuracy [verbs]": val_accuracy_verb,
                             "val accuracy [nouns]": val_accuracy_noun,
                         },
@@ -503,8 +482,9 @@ class Trainer:
             # Validation loop after each epoch
             if validate_strategy == "epoch":
                 self.model.eval()
-                val_accuracy_verb, val_accuracy_noun = _validate()
+                val_loss, val_accuracy_verb, val_accuracy_noun = _validate()
                 val_acc_history.append((val_accuracy_verb, val_accuracy_noun))
+                val_loss_history.append(val_loss)
                 if val_accuracy_verb > best_val_acc[0]:
                     self.accelerator.wait_for_everyone()
                     self.accelerator.save_state(
@@ -519,6 +499,7 @@ class Trainer:
                     best_val_acc[1] = val_accuracy_noun
                 self.accelerator.log(
                     {
+                        "val loss": val_loss,
                         "val accuracy [verbs]": val_accuracy_verb,
                         "val accuracy [nouns]": val_accuracy_noun,
                     },
@@ -533,8 +514,9 @@ class Trainer:
 
             # Log to tensorboard after each epoch
             avg_loss = epoch_loss / len(self.train_loader)
-            avg_verb_acc = correct_verbs / num_verbs if num_verbs > 0 else 0.0
-            avg_noun_acc = correct_nouns / num_nouns if num_nouns > 0 else 0.0
+            # avg_loss = self.accelerator.gather_for_metrics(losses['train_loss']).mean().item()
+            avg_verb_acc = correct_verbs / num_verbs if self.cfg.trainer.verb else 0.0
+            avg_noun_acc = correct_nouns / num_nouns if self.cfg.trainer.noun else 0.0
             self.accelerator.log(
                 {
                     "train loss": avg_loss,
